@@ -1,11 +1,14 @@
 use axum::{
     routing::get,
     Router,
-    response::{IntoResponse, Response},
+    response::IntoResponse,
     http::{StatusCode, header, Uri},
 };
 use rust_embed::RustEmbed;
 use mime_guess::from_path;
+
+mod db;
+mod api;
 
 #[derive(RustEmbed)]
 #[folder = "../dist"] // 指向前端 Vite 构建产物
@@ -49,10 +52,13 @@ async fn health_check() -> &'static str {
 
 #[tokio::main]
 async fn main() {
-    println!("Initializing Sovereign Backend...");
+    println!("Initializing Sovereign Backend DB...");
+    
+    // 初始化本地 SQLite (数据库文件名：sovereign_note.db)
+    let pool = db::init_db("sovereign_note.db");
 
-    // 独立注册挂载的 API 路由集
-    let api_routes = Router::new()
+    // 注册挂载的 API 路由集，嵌套在 /api
+    let api_routes = api::router(pool)
         .route("/health", get(health_check));
 
     // 构建应用
@@ -61,7 +67,7 @@ async fn main() {
         // 使用 fallback 挂载前端静态资源与 SPA 接管逻辑
         .fallback(fallback_handler);
 
-    // 绑定端口，必须为 3000 (支持容器环境与本地调试)
+    // 绑定端口 3000 (支持容器环境与本地调试)
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     println!("Server successfully running on http://0.0.0.0:3000");
     axum::serve(listener, app).await.unwrap();

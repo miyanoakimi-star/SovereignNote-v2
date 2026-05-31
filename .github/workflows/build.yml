@@ -151,6 +151,8 @@ jobs:
         run: |
           export NDK_HOME=$ANDROID_NDK_LATEST_HOME
           cd core-backend
+          # 动态剔除 [[bin]] 单元阻碍使得 cargo-apk 顺利作为 pure-library 进行编译，杜绝 Cdylib 冲突
+          sed -i '/\[\[bin\]\]/,/path = "src\/main.rs"/d' Cargo.toml
           cargo apk build --lib --release
         continue-on-error: true
 
