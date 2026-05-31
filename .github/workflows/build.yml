@@ -153,14 +153,14 @@ jobs:
           cd core-backend
           # 动态剔除 [[bin]] 单元阻碍使得 cargo-apk 顺利作为 pure-library 进行编译，杜绝 Cdylib 冲突
           sed -i '/\[\[bin\]\]/,/path = "src\/main.rs"/d' Cargo.toml
-          cargo apk build --lib --release
+          cargo apk build --lib
         continue-on-error: true
 
       - name: Upload Android Artifact
         uses: actions/upload-artifact@v4
         with:
           name: SovereignNote_Android_APK
-          path: core-backend/target/release/apk/*.apk
+          path: core-backend/target/debug/apk/*.apk
           if-no-files-found: ignore
 
   release-publish:

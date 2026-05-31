@@ -71,12 +71,13 @@ pub fn sync_notes(pool: &DbPool, incoming_notes: Vec<Note>) -> Result<Vec<Note>,
     for note in incoming_notes {
         // 先查询现有记录，进行 LWW 合并算法：Last-Write-Wins 仅在传入的 updated_at 大于等于现有记录时进行 upsert
         let mut existing_opt: Option<(i64, i32)> = None;
-        let mut stmt = tx.prepare("SELECT updated_at, deleted FROM notes WHERE id = ?1")?;
-        let mut rows = stmt.query(params![note.id])?;
-        if let Some(row) = rows.next()? {
-            existing_opt = Some((row.get(0)?, row.get(1)?));
+        {
+            let mut stmt = tx.prepare("SELECT updated_at, deleted FROM notes WHERE id = ?1")?;
+            let mut rows = stmt.query(params![note.id])?;
+            if let Some(row) = rows.next()? {
+                existing_opt = Some((row.get(0)?, row.get(1)?));
+            }
         }
-        drop(stmt);
 
         match existing_opt {
             Some((existing_updated_at, _)) => {
