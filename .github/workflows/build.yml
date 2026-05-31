@@ -10,7 +10,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  NODE_VERSION: '18'
+  NODE_VERSION: '22'
   RUST_VERSION: '1.75.0'
 
 jobs:
@@ -27,16 +27,15 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Dependency Cache (Node Modules)
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
-          path: ./ui-frontend/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('./ui-frontend/package-lock.json') }}
+          path: ./node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('./package-lock.json') }}
 
       - name: Build Frontend (ES5 强硬降级)
         # 【架构前端独立打包】：Vite 插件 @vitejs/plugin-legacy 将被启用，
         # 将 React 语法转译至 ES5、移除超前样式，最终输出稳定的 /dist 目录。
         run: |
-          cd ui-frontend
           npm install
           npm run build
         continue-on-error: true
@@ -45,7 +44,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
-          path: ui-frontend/dist/
+          path: dist/
 
   build-windows:
     name: Build Windows (${{ matrix.arch }})
@@ -69,7 +68,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: frontend-dist
-          path: ui-frontend/dist
+          path: dist
 
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@master
@@ -131,7 +130,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: frontend-dist
-          path: ui-frontend/dist
+          path: dist
 
       - name: Setup Java JDK
         uses: actions/setup-java@v3
