@@ -5,8 +5,11 @@ export interface NoteEntity {
   updated_at: number; // 高精度毫秒级时间戳 (LWW 基准)
 }
 
-// 固化于回环地址的后台接口基座
-const API_BASE = 'http://127.0.0.1:3000/api';
+// 判断是否在浏览器环境中且不是 localhost
+const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+// 固化于回环地址的后台接口基座 (如果运行在云端预览，则使用相对路径避免 CORS / 404，如果是本地桌面程序则直连 3000)
+const API_BASE = isLocalhost ? 'http://127.0.0.1:3000/api' : '/api';
 
 /**
  * 核心网络层：去中心化 LWW (Last-Write-Wins) 修改合并算法
