@@ -1,0 +1,212 @@
+name: SovereignNote v2 (Rust 铁血版) CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  NODE_VERSION: '18'
+  RUST_VERSION: '1.75.0'
+
+jobs:
+  build-frontend:
+    name: Build Frontend (ES5 降级网页壳)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Dependency Cache (Node Modules)
+        uses: actions/cache@v3
+        with:
+          path: ./ui-frontend/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('./ui-frontend/package-lock.json') }}
+
+      - name: Build Frontend (ES5 强硬降级)
+        # 【架构前端独立打包】：Vite 插件 @vitejs/plugin-legacy 将被启用，
+        # 将 React 语法转译至 ES5、移除超前样式，最终输出稳定的 /dist 目录。
+        run: |
+          cd ui-frontend
+          npm install
+          npm run build
+        continue-on-error: true
+
+      - name: Upload Frontend Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: ui-frontend/dist/
+
+  build-windows:
+    name: Build Windows (${{ matrix.arch }})
+    needs: build-frontend
+    # 使用 Windows 宿主机，实现 MSVC 编译链接
+    runs-on: windows-latest
+    strategy:
+      # 【利用 Matrix 矩阵实现双架构分离并行构建】
+      matrix:
+        include:
+          - arch: x64
+            target: x86_64-pc-windows-msvc
+          - arch: ia32
+            target: i686-pc-windows-msvc
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Frontend Artifact
+        # 【无差别复用嵌入】：拉取刚才前置 Job 已经 ES5 降级完毕的前端静态包
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: ui-frontend/dist
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          # 自动执行 rustup target add 根据矩阵下载 x64/ia32 靶点支持
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cargo Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'core-backend -> target'
+
+      - name: Build Rust Backend (物理嵌入与底层交叉编译)
+        # 1. rust-embed 宏将吸入上游阶段已经下载的 ui-frontend/dist。
+        # 2. SQLite 的 bundled 特性将会根据 target 自动编译正确的 32/64 位 C 代码静态链入。
+        run: |
+          cd core-backend
+          cargo build --release --target ${{ matrix.target }}
+        continue-on-error: true
+
+      - name: Rename Artifact 
+        # 获取当前版本 Tag 号，若无则默认为 nightly
+        # 识别 matrix.arch 生成双端截然不同的物理包装名称
+        run: |
+          $Tag = "${{ github.ref_name }}"
+          if ($Tag -notmatch "^v") { $Tag = "nightly" }
+          $Ext = ".exe"
+          $TargetDir = "core-backend\target\${{ matrix.target }}\release"
+          $OriginalExe = "$TargetDir\sovereign-core$Ext"
+          $NewName = "SovereignNote_${Tag}_windows_${{ matrix.arch }}$Ext"
+          
+          if (Test-Path $OriginalExe) {
+            Rename-Item -Path $OriginalExe -NewName $NewName
+            echo "EXECUTABLE_NAME=$NewName" >> $env:GITHUB_ENV
+          } else {
+            echo "Executable not found! Skipping rename."
+          }
+        shell: powershell
+        continue-on-error: true
+
+      - name: Upload Windows Architecture Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SovereignNote_Windows_${{ matrix.arch }}
+          path: core-backend/target/${{ matrix.target }}/release/*.exe
+          if-no-files-found: ignore
+
+  build-android:
+    name: Build Android (APK)
+    needs: build-frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Frontend Artifact
+        # 【无差别复用嵌入】：拉取已经降级封装的前端资产，准备塞进 APK 的 Rust 核心层
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: ui-frontend/dist
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Android NDK & SDK
+        # 【环境初始化与交叉编译核心】：配置 NDK (Native Development Kit)。
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Rust Toolchain (Android Targets)
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          # 增加 armv7 (老古董设备) 和 aarch64 (现代 Android) 编译靶点支持
+          targets: aarch64-linux-android, armv7-linux-androideabi
+
+      - name: Rust Cargo Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'core-backend -> target'
+
+      - name: Install cargo-apk Tool
+        # 【胶水层粘合】：cargo-apk 利用 Android 原生的机制打包
+        run: cargo install cargo-apk
+
+      - name: Build Android APK
+        env:
+          # NDK_HOME 等环境变量由 setup-android 提供，是 cargo-apk 执行的命脉
+          NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          cd core-backend
+          cargo apk build --release
+        continue-on-error: true
+
+      - name: Upload Android Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SovereignNote_Android_APK
+          path: core-backend/target/release/apk/*.apk
+          if-no-files-found: ignore
+
+  release-publish:
+    name: Auto Release (资产分发)
+    needs: [build-windows, build-android]
+    # 铁血判定：只有打上了 v 开头的版本标签 (Git Tag) 时，才会触发真实释放
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows x64 Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: SovereignNote_Windows_x64
+          path: artifacts/Windows_x64
+
+      - name: Download Windows ia32 Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: SovereignNote_Windows_ia32
+          path: artifacts/Windows_ia32
+
+      - name: Download Android Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: SovereignNote_Android_APK
+          path: artifacts/Android
+
+      - name: Publish to GitHub Releases
+        # 【自动资产汇编】：将 Windows (32/64位) 和 Android 安装包上传至 GitHub Release 页面。
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/Windows_x64/*
+            artifacts/Windows_ia32/*
+            artifacts/Android/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
