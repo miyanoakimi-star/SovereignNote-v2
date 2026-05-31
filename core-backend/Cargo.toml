@@ -3,6 +3,15 @@ name = "sovereign-core"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "sovereign_core"
+crate-type = ["cdylib", "rlib", "staticlib"]
+path = "src/lib.rs"
+
+[[bin]]
+name = "sovereign-core-exe"
+path = "src/main.rs"
+
 [dependencies]
 axum = "0.7"
 tokio = { version = "1.0", features = ["full"] }
