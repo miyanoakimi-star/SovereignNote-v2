@@ -38,7 +38,7 @@ jobs:
 
       - name: ⚡ 依赖安装与前端工程化生产打包
         run: |
-          npm install
+          npm install --legacy-peer-deps
           npm run build
 
       - name: 💾 暂存前端打包产物
@@ -116,7 +116,7 @@ jobs:
 
       - name: ⚙️ 安装环境与同步 Capacitor
         run: |
-          npm install
+          npm install --legacy-peer-deps
           npx cap sync android
 
       - name: ⚡ 构建 Android APK 原生包 (Debug/Release)
