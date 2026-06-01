@@ -1,11 +1,4 @@
-export interface Note {
-  id: string;
-  title: string;
-  content: string;
-  created_at: number; // 高精度毫秒级时间戳
-  updated_at: number; // 高精度毫秒级时间戳 (LWW 基准)
-  deleted: boolean;   // Tombstone 删除标记用于脱机 LWW 同步
-}
+import { Note } from '../types';
 
 // 统一采用相对路径 `/api` 以避免任何跨域 (CORS) 与特定 IP/Port 绑定的错误
 const API_BASE = '/api';
