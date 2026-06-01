@@ -13,10 +13,12 @@ interface PartitionBarProps {
   activeNoteId: string | null;
   setActiveNoteId: (id: string | null) => void;
   searchQuery: string;
-  handleCreateNote: (initialTitle?: string, initialContent?: string) => void;
+  handleCreateNote: (initialTitle?: string, initialContent?: string, folder?: string) => void;
   handleDeleteNote: (id: string) => void;
   selectedTag: string | null;
   setSelectedTag: (tag: string | null) => void;
+  selectedFolder: string | null;
+  setSelectedFolder: (folder: string | null) => void;
   fontSizeLevel: number;
   setFontSizeLevel: (level: number) => void;
   customEvents: CalendarEvent[];
@@ -44,6 +46,8 @@ export default function PartitionBar({
   handleDeleteNote,
   selectedTag,
   setSelectedTag,
+  selectedFolder,
+  setSelectedFolder,
   fontSizeLevel,
   setFontSizeLevel,
   customEvents,
@@ -53,8 +57,6 @@ export default function PartitionBar({
 }: PartitionBarProps) {
   const [collapsedPaths, setCollapsedPaths] = useState<Record<string, boolean>>({});
   const [dragActive, setDragActive] = useState<boolean>(false);
-
-  if (!isOpen) return null;
 
   const nonDeletedNotes = useMemo(() => notes.filter(n => !n.deleted), [notes]);
 
@@ -211,7 +213,17 @@ export default function PartitionBar({
       });
   };
 
-  // Filtered Notes based on search query AND optionally clicked tag
+  const allFolders = useMemo(() => {
+    const foldersSet = new Set<string>();
+    nonDeletedNotes.forEach((n) => {
+      if (n.folder) {
+        foldersSet.add(n.folder);
+      }
+    });
+    return Array.from(foldersSet);
+  }, [nonDeletedNotes]);
+
+  // Filtered Notes based on search query AND optionally clicked tag and folder
   const filteredNotes = useMemo(() => {
     return nonDeletedNotes.filter(note => {
       // 1. Matches Search query
@@ -220,19 +232,29 @@ export default function PartitionBar({
         note.content.toLowerCase().includes(searchQuery.toLowerCase());
       
       // 2. Matches selected tag (including sub-paths)
+      let matchesTag = true;
       if (selectedTag) {
         const matches = note.content.match(/(^|\s)#([a-zA-Z0-9_\u4e00-\u9fa5/]+)/g);
-        if (!matches) return false;
-        const noteTags = matches.map(m => m.trim().substring(1));
-        const hasTagMatch = noteTags.some(t => t === selectedTag || t.startsWith(`${selectedTag}/`));
-        return matchesSearch && hasTagMatch;
+        if (!matches) {
+          matchesTag = false;
+        } else {
+          const noteTags = matches.map(m => m.trim().substring(1));
+          matchesTag = noteTags.some(t => t === selectedTag || t.startsWith(`${selectedTag}/`));
+        }
       }
-      return matchesSearch;
+
+      // 3. Matches folder
+      let matchesFolder = true;
+      if (selectedFolder) {
+        matchesFolder = note.folder === selectedFolder;
+      }
+      
+      return matchesSearch && matchesTag && matchesFolder;
     }).sort((a, b) => b.updated_at - a.updated_at);
-  }, [nonDeletedNotes, searchQuery, selectedTag]);
+  }, [nonDeletedNotes, searchQuery, selectedTag, selectedFolder]);
 
   return (
-    <div className="w-80 shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col overflow-hidden select-none">
+    <div className={`w-80 shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col overflow-hidden select-none ${!isOpen ? 'hidden' : ''}`}>
       {/* SECTION HEADER */}
       <div className="h-14 px-4 border-b border-slate-800 flex items-center justify-between shrink-0 bg-slate-950/40">
         <h2 className="text-sm font-bold text-slate-100 flex items-center animate-fade-in">
@@ -256,13 +278,13 @@ export default function PartitionBar({
       {navState === 'notes' && (
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Create Button */}
-          <div className="p-3 bg-slate-950/10 shrink-0">
+          <div className="p-3 bg-slate-950/10 shrink-0 space-y-3">
             <button
-              onClick={() => handleCreateNote()}
+              onClick={() => handleCreateNote(undefined, undefined, selectedFolder || undefined)}
               className="w-full flex items-center justify-center space-x-2 py-2 rounded-lg bg-indigo-600/15 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 font-semibold text-xs transition-colors"
             >
               <Plus className="w-4 h-4" />
-              <span>新建笔记</span>
+              <span>新建笔记 {selectedFolder && `(归入 ${selectedFolder})`}</span>
             </button>
             {selectedTag && (
               <div className="mt-2 text-[11px] bg-indigo-950/40 text-indigo-300 border border-indigo-900/40 p-2 rounded-lg flex items-center justify-between">
@@ -270,15 +292,65 @@ export default function PartitionBar({
                 <button onClick={() => setSelectedTag(null)} className="hover:text-rose-400 font-extrabold px-1 text-xs">清除</button>
               </div>
             )}
+
+            {/* Folders List Inside Create Block */}
+            <div className="pt-2.5 border-t border-slate-800/60 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                  📁 文件夹分类
+                </span>
+                <button
+                  onClick={() => {
+                    const folderName = prompt("请输入新建文件夹名称:");
+                    if (folderName && folderName.trim()) {
+                      handleCreateNote(`在 ${folderName.trim()} 中的新笔记`, `# 欢迎\n\n这是在 [${folderName.trim()}] 文件夹中的第一篇笔记。`, folderName.trim());
+                      setSelectedFolder(folderName.trim());
+                    }
+                  }}
+                  className="text-[9px] bg-slate-800 hover:bg-slate-700 hover:text-white text-indigo-400 border border-slate-750 px-1.5 py-0.5 rounded font-bold transition-all animate-fade-in"
+                >
+                  + 新建
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto py-1">
+                <button
+                  onClick={() => setSelectedFolder(null)}
+                  className={`text-[10px] px-2 py-0.5 rounded border transition-all flex items-center gap-1 ${
+                    selectedFolder === null
+                      ? 'bg-indigo-600/20 text-indigo-450 border-indigo-500/30 font-bold'
+                      : 'bg-slate-950/30 text-slate-450 border-slate-800 hover:text-slate-200'
+                  }`}
+                >
+                  全部 ({nonDeletedNotes.length})
+                </button>
+                {allFolders.map(folderName => {
+                  const count = nonDeletedNotes.filter(n => n.folder === folderName).length;
+                  return (
+                    <button
+                      key={folderName}
+                      onClick={() => setSelectedFolder(folderName === selectedFolder ? null : folderName)}
+                      className={`text-[10px] px-2 py-0.5 rounded border transition-all flex items-center gap-1 ${
+                        selectedFolder === folderName
+                          ? 'bg-indigo-600/30 text-indigo-300 border-indigo-500/40 font-bold'
+                          : 'bg-slate-950/30 text-slate-400 border-slate-800 hover:text-slate-200'
+                      }`}
+                    >
+                      <span className="truncate max-w-[80px]">📁 {folderName}</span>
+                      <span className="text-[8px] bg-slate-900/60 text-slate-500 px-1 rounded-sm">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           {/* Notes List with visual touch */}
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-800/40">
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-800/40 animate-fade-in">
             {filteredNotes.length === 0 ? (
               <div className="p-10 text-center text-slate-500 text-xs flex flex-col items-center justify-center space-y-2">
                 <FileText className="w-8 h-8 opacity-20 text-slate-400" />
                 <p>无匹配笔记</p>
-                {selectedTag && <p className="scale-90 opacity-60">标签包含的字级目前无符合文章</p>}
+                {(selectedTag || selectedFolder) && <p className="scale-90 opacity-60">此分类/标签下暂无符合文章</p>}
               </div>
             ) : (
               filteredNotes.map(note => {
@@ -314,6 +386,9 @@ export default function PartitionBar({
                     </p>
                     <div className="flex items-center justify-between text-[10px] text-slate-600 mt-2 font-mono">
                       <span>{new Date(note.updated_at).toLocaleDateString(undefined, {month:'short', day:'numeric'})}</span>
+                      {note.folder && (
+                        <span className="text-[9px] bg-slate-950 text-indigo-400 px-1.5 py-0.2 rounded-full border border-indigo-500/10 truncate max-w-[80px]">📁 {note.folder}</span>
+                      )}
                       <span>{note.content.length} 字</span>
                     </div>
                   </div>

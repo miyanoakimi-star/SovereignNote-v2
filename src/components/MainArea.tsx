@@ -4,13 +4,14 @@ import { parseMarkdown } from '../utils/markdown';
 import { getLunarInfo } from '../utils/lunar';
 import { 
   Layout, Eye, FileDown, EyeOff, Settings, Calendar as CalendarIcon, 
-  Database, ChevronLeft, ChevronRight, X, Server, Sliders, Rocket, Terminal, Check, RefreshCw
+  Database, ChevronLeft, ChevronRight, X, Server, Sliders, Rocket, Terminal, Check, RefreshCw,
+  Bold, Italic, Code, Link, Image, List, ListOrdered, Quote, Table, CheckSquare
 } from 'lucide-react';
 
 interface MainAreaProps {
   navState: NavState;
   activeNote: Note | null;
-  updateActiveNote: (title: string, content: string) => void;
+  updateActiveNote: (title: string, content: string, extraFields?: Partial<Note>) => void;
   fontSizeLevel: number;
   setFontSizeLevel: (level: number) => void;
   customEvents: CalendarEvent[];
@@ -20,11 +21,13 @@ interface MainAreaProps {
   customFestivals: Record<string, string>;
   setCustomFestivals: (festivals: Record<string, string>) => void;
   notes: Note[];
-  handleCreateNote: (initialTitle?: string, initialContent?: string) => void;
+  handleCreateNote: (initialTitle?: string, initialContent?: string, folder?: string) => void;
   setActiveNoteId: (id: string | null) => void;
   setNavState: (state: NavState) => void;
   handleExportDatabase: () => void;
   handleImportDatabase: (jsonData: string) => void;
+  isPartitionOpen: boolean;
+  setIsPartitionOpen: (open: boolean) => void;
 }
 
 export default function MainArea({
@@ -45,6 +48,8 @@ export default function MainArea({
   setNavState,
   handleExportDatabase,
   handleImportDatabase,
+  isPartitionOpen,
+  setIsPartitionOpen,
 }: MainAreaProps) {
   const [editorMode, setEditorMode] = useState<'edit' | 'preview' | 'split'>('split');
   const [isToolbarOpen, setIsToolbarOpen] = useState(true);
@@ -79,39 +84,136 @@ export default function MainArea({
     switch (level) {
       case 1: // Extra Small
         return {
-          editor: "text-xs font-mono p-6 bg-transparent text-slate-200 resize-none focus:outline-none focus:ring-0 leading-normal",
-          preview: "prose prose-invert prose-xs max-w-none text-slate-300 font-sans text-xs leading-normal",
-          title: "bg-transparent text-xs font-bold text-slate-100 border-none focus:outline-none focus:ring-0 placeholder-slate-600 w-64"
+          editor: "text-xs font-mono p-6 bg-transparent text-slate-200 resize-none focus:outline-none focus:ring-0 leading-normal w-full h-full",
+          preview: "prose prose-invert prose-sm max-w-none text-slate-300 font-sans !text-xs leading-normal",
+          title: "bg-transparent text-xs font-bold text-slate-100 border-none focus:outline-none focus:ring-0 placeholder-slate-600 w-48 shrink-0"
         };
       case 3: // Medium
         return {
-          editor: "text-base font-mono p-6 bg-transparent text-slate-200 resize-none focus:outline-none focus:ring-0 leading-relaxed",
-          preview: "prose prose-invert prose-indigo max-w-none text-slate-300 font-sans text-base leading-relaxed",
-          title: "bg-transparent text-base font-bold text-slate-100 border-none focus:outline-none focus:ring-0 placeholder-slate-600 w-64"
+          editor: "text-base font-mono p-6 bg-transparent text-slate-200 resize-none focus:outline-none focus:ring-0 leading-relaxed w-full h-full",
+          preview: "prose prose-invert prose-indigo max-w-none text-slate-300 font-sans !text-base leading-relaxed",
+          title: "bg-transparent text-base font-bold text-slate-100 border-none focus:outline-none focus:ring-0 placeholder-slate-600 w-48 shrink-0"
         };
       case 4: // Large
         return {
-          editor: "text-lg font-mono p-6 bg-transparent text-slate-200 resize-none focus:outline-none focus:ring-0 leading-relaxed",
-          preview: "prose prose-invert prose-indigo max-w-none text-slate-300 font-sans text-lg leading-relaxed",
-          title: "bg-transparent text-lg font-bold text-slate-100 border-none focus:outline-none focus:ring-0 placeholder-slate-600 w-64"
+          editor: "text-lg font-mono p-6 bg-transparent text-slate-200 resize-none focus:outline-none focus:ring-0 leading-relaxed w-full h-full",
+          preview: "prose prose-invert prose-indigo max-w-none text-slate-300 font-sans !text-lg leading-relaxed",
+          title: "bg-transparent text-lg font-bold text-slate-100 border-none focus:outline-none focus:ring-0 placeholder-slate-600 w-56 shrink-0"
         };
       case 5: // Extra Large (大字辅助版)
         return {
-          editor: "text-xl font-mono p-8 bg-transparent text-slate-100 resize-none focus:outline-none  focus:ring-0 leading-loose",
-          preview: "prose prose-invert prose-indigo max-w-none text-slate-100 font-sans text-xl leading-loose",
-          title: "bg-transparent text-2xl font-black text-slate-100 border-none focus:outline-none focus:ring-0 placeholder-slate-600 w-80"
+          editor: "text-xl font-mono p-8 bg-transparent text-slate-100 resize-none focus:outline-none focus:ring-0 leading-loose w-full h-full",
+          preview: "prose prose-invert prose-indigo max-w-none text-slate-100 font-sans !text-xl leading-loose",
+          title: "bg-transparent text-2xl font-black text-slate-100 border-none focus:outline-none focus:ring-0 placeholder-slate-600 w-64 shrink-0"
         };
       case 2:
       default: // Normal Standard
         return {
-          editor: "text-sm font-mono p-6 bg-transparent text-slate-200 resize-none focus:outline-none focus:ring-0 leading-relaxed",
-          preview: "prose prose-invert prose-indigo max-w-none text-slate-300 font-sans text-sm leading-relaxed",
-          title: "bg-transparent text-sm font-bold text-slate-100 border-none focus:outline-none focus:ring-0 placeholder-slate-600 w-64"
+          editor: "text-sm font-mono p-6 bg-transparent text-slate-200 resize-none focus:outline-none focus:ring-0 leading-relaxed w-full h-full",
+          preview: "prose prose-invert prose-indigo max-w-none text-slate-300 font-sans !text-sm leading-relaxed",
+          title: "bg-transparent text-sm font-bold text-slate-100 border-none focus:outline-none focus:ring-0 placeholder-slate-600 w-48 shrink-0"
         };
     }
   };
 
   const fontClasses = useMemo(() => getFontSizeClasses(fontSizeLevel), [fontSizeLevel]);
+
+  const getFontSizeStyle = (level: number) => {
+    switch (level) {
+      case 1: return { fontSize: '12px' };
+      case 2: return { fontSize: '14px' };
+      case 3: return { fontSize: '16px' };
+      case 4: return { fontSize: '18px' };
+      case 5: return { fontSize: '20px' };
+      default: return { fontSize: '14px' };
+    }
+  };
+
+  const allFolders = useMemo(() => {
+    const foldersSet = new Set<string>();
+    notes.filter(n => !n.deleted).forEach((n) => {
+      if (n.folder) {
+        foldersSet.add(n.folder);
+      }
+    });
+    return Array.from(foldersSet);
+  }, [notes]);
+
+  const handleFormat = (type: string) => {
+    if (!activeNote) return;
+    const textarea = document.getElementById('note-editor-textarea') as HTMLTextAreaElement;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = activeNote.content;
+    const selected = text.substring(start, end);
+
+    let replacement = "";
+    switch (type) {
+      case 'bold':
+        replacement = `**${selected || '加粗文本'}**`;
+        break;
+      case 'italic':
+        replacement = `*${selected || '斜体文本'}*`;
+        break;
+      case 'strike':
+        replacement = `~~${selected || '删除线文本'}~~`;
+        break;
+      case 'code':
+        replacement = `\`${selected || '代码'}\``;
+        break;
+      case 'h1':
+        replacement = `\n# ${selected || '一级标题'}\n`;
+        break;
+      case 'h2':
+        replacement = `\n## ${selected || '二级标题'}\n`;
+        break;
+      case 'h3':
+        replacement = `\n### ${selected || '三级标题'}\n`;
+        break;
+      case 'ul':
+        replacement = `\n- ${selected || '列表项目'}`;
+        break;
+      case 'ol':
+        replacement = `\n1. ${selected || '列表项目'}`;
+        break;
+      case 'task':
+        replacement = `\n- [ ] ${selected || '待办任务'}`;
+        break;
+      case 'quote':
+        replacement = `\n> ${selected || '引用内容'}`;
+        break;
+      case 'hr':
+        replacement = `\n---\n`;
+        break;
+      case 'table':
+        replacement = `\n| 表头1 | 表头2 |\n| ---- | ---- |\n| 单元格1 | 单元格2 |\n`;
+        break;
+      case 'link':
+        replacement = `[${selected || '链接文本'}](https://example.com)`;
+        break;
+      case 'image':
+        replacement = `![${selected || '图片描述'}](https://example.com/image.png)`;
+        break;
+      case 'tag':
+        replacement = `${selected || ''} #多级/标签/ `;
+        break;
+      case 'calendar':
+        const formattedDateString = `#${new Date().toISOString().slice(0, 10)}`;
+        replacement = `${selected || ''} ${formattedDateString} `;
+        break;
+    }
+
+    const updatedContent = text.substring(0, start) + replacement + text.substring(end);
+    updateActiveNote(activeNote.title, updatedContent, {});
+
+    // Refocus and place selections
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start, start + replacement.length);
+    }, 50);
+  };
 
   // Handle Testing WebDAV with Custom Port and Path
   const handleTestWebDAV = () => {
@@ -1138,10 +1240,20 @@ jobs:
   // DEFAULT WORKSPACE EDITOR ROUTE
   if (!activeNote) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-slate-900 text-slate-500 flex-col border-l border-slate-800 select-none">
-        <Layout className="w-12 h-12 mb-4 opacity-50 text-indigo-400" />
-        <p className="text-sm font-semibold text-slate-400">零星几点 筑成知识汪洋</p>
-        <p className="text-xs text-slate-600 mt-1">请从左侧栏选择一条已写笔记，或创建一个新笔记开始书写。</p>
+      <div className="flex-1 flex items-center justify-center bg-slate-900 text-slate-500 flex-col border-l border-slate-800 select-none space-y-4">
+        <div className="flex flex-col items-center justify-center">
+          <Layout className="w-12 h-12 mb-4 opacity-50 text-indigo-400" />
+          <p className="text-sm font-semibold text-slate-400">零星几点 筑成知识汪洋</p>
+          <p className="text-xs text-slate-600 mt-1">请从左侧栏选择一条已写笔记，或创建一个新笔记开始书写。</p>
+        </div>
+        {!isPartitionOpen && (
+          <button
+            onClick={() => setIsPartitionOpen(true)}
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-lg transition-colors shadow-md flex items-center gap-2"
+          >
+            <ChevronRight className="w-4 h-4" /> 展开笔记面板
+          </button>
+        )}
       </div>
     );
   }
@@ -1151,6 +1263,17 @@ jobs:
       {/* EDITOR BAR HEADER */}
       <div className="h-14 px-6 border-b border-slate-800 flex items-center justify-between bg-slate-950/60 shrink-0 select-none">
         <div className="flex items-center space-x-2">
+          {!isPartitionOpen && (
+            <button 
+              onClick={() => setIsPartitionOpen(true)} 
+              className="text-indigo-400 hover:text-indigo-300 mr-2 p-1.5 bg-indigo-600/10 hover:bg-indigo-600/20 rounded-lg flex items-center gap-1.5 text-xs font-semibold transition-all border border-indigo-500/15" 
+              title="展开笔记列表"
+            >
+              <ChevronRight className="w-4 h-4" />
+              <span>展开</span>
+            </button>
+          )}
+
           <button 
             onClick={() => setIsToolbarOpen(!isToolbarOpen)} 
             className="text-slate-500 hover:text-indigo-400 mr-2 p-1.5 hover:bg-slate-800/60 rounded" 
@@ -1166,6 +1289,33 @@ jobs:
             placeholder="输入标题..."
             className={fontClasses.title}
           />
+
+          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 px-2 rounded-lg py-1 animate-fade-in shrink-0">
+            <span className="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1">
+              📁
+            </span>
+            <select
+              value={activeNote.folder || ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === "___create_new___") {
+                  const newF = prompt("请输入新建文件夹名称:");
+                  if (newF && newF.trim()) {
+                    updateActiveNote(activeNote.title, activeNote.content, { folder: newF.trim() });
+                  }
+                } else {
+                  updateActiveNote(activeNote.title, activeNote.content, { folder: val || undefined });
+                }
+              }}
+              className="bg-transparent text-[11px] text-slate-355 outline-none border-none focus:ring-0 cursor-pointer pr-1"
+            >
+              <option value="" className="bg-slate-950 text-slate-400">未分类</option>
+              {allFolders.map(f => (
+                <option key={f} value={f} className="bg-slate-950 text-slate-300">📁 {f}</option>
+              ))}
+              <option value="___create_new___" className="bg-slate-950 text-indigo-400 font-semibold">+ 新建文件夹...</option>
+            </select>
+          </div>
         </div>
 
         <div className="flex items-center space-x-3 text-xs">
@@ -1234,54 +1384,153 @@ jobs:
 
       {/* QUICK MARKDOWN FORMATTING BUTTONS TOOLBAR */}
       {isToolbarOpen && editorMode !== 'preview' && (
-        <div className="h-10 px-6 border-b border-slate-800/60 bg-slate-950/30 flex items-center space-x-5 shrink-0 text-slate-500 text-xs select-none">
-          <button 
-            className="hover:text-slate-200 font-extrabold focus:outline-none" 
-            onClick={() => {
-              updateActiveNote(activeNote.title, `# ${activeNote.content}`);
-            }}
-          >
-            H1
-          </button>
-          <button 
-            className="hover:text-slate-200 font-bold focus:outline-none"
-            onClick={() => {
-              updateActiveNote(activeNote.title, `## ${activeNote.content}`);
-            }}
-          >
-            H2
-          </button>
-          <button 
-            className="hover:text-indigo-400 font-black focus:outline-none"
-            onClick={() => {
-              updateActiveNote(activeNote.title, `${activeNote.content}\n\n#多级/标签/`);
-            }}
-          >
-            #插入嵌套层级标签
-          </button>
-          
-          <button 
-            className="hover:text-slate-200 font-semibold focus:outline-none"
-            onClick={() => {
-              const formattedDateString = `#${new Date().toISOString().slice(0, 10)}`;
-              updateActiveNote(activeNote.title, `${activeNote.content}\n\n${formattedDateString} `);
-            }}
-            title="将当天日期插入为标签，从而在日历中建立联动同步"
-          >
-            📅 在文本中插入联动日期
-          </button>
+        <div className="h-10 px-6 border-b border-slate-800/60 bg-slate-950/40 flex items-center justify-between shrink-0 text-slate-400 text-xs select-none overflow-x-auto gap-4">
+          <div className="flex items-center space-x-3 shrink-0">
+            {/* Headers */}
+            <div className="flex items-center space-x-1 border-r border-slate-800/80 pr-2">
+              <button 
+                className="hover:text-amber-400 font-extrabold px-1.5 py-0.5 rounded hover:bg-slate-800/50" 
+                onClick={() => handleFormat('h1')}
+                title="一级标题"
+              >
+                H1
+              </button>
+              <button 
+                className="hover:text-amber-400 font-bold px-1.5 py-0.5 rounded hover:bg-slate-800/50"
+                onClick={() => handleFormat('h2')}
+                title="二级标题"
+              >
+                H2
+              </button>
+              <button 
+                className="hover:text-amber-400 font-semibold px-1.5 py-0.5 rounded hover:bg-slate-800/50"
+                onClick={() => handleFormat('h3')}
+                title="三级标题"
+              >
+                H3
+              </button>
+            </div>
+
+            {/* Inline Formatting */}
+            <div className="flex items-center space-x-1 border-r border-slate-800/80 pr-2">
+              <button 
+                className="hover:text-indigo-400 p-1 rounded hover:bg-slate-800/50" 
+                onClick={() => handleFormat('bold')}
+                title="加粗"
+              >
+                <Bold className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                className="hover:text-indigo-400 p-1 rounded hover:bg-slate-800/50" 
+                onClick={() => handleFormat('italic')}
+                title="斜体"
+              >
+                <Italic className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                className="hover:text-indigo-400 p-1 rounded hover:bg-slate-800/50" 
+                onClick={() => handleFormat('code')}
+                title="代码"
+              >
+                <Code className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Block Formatting */}
+            <div className="flex items-center space-x-1 border-r border-slate-800/80 pr-2">
+              <button 
+                className="hover:text-indigo-400 p-1 rounded hover:bg-slate-800/50" 
+                onClick={() => handleFormat('ul')}
+                title="无序列表"
+              >
+                <List className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                className="hover:text-indigo-400 p-1 rounded hover:bg-slate-800/50" 
+                onClick={() => handleFormat('ol')}
+                title="有序列表"
+              >
+                <ListOrdered className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                className="hover:text-indigo-400 p-1 rounded hover:bg-slate-800/50" 
+                onClick={() => handleFormat('task')}
+                title="待办任务"
+              >
+                <CheckSquare className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                className="hover:text-indigo-400 p-1 rounded hover:bg-slate-800/50" 
+                onClick={() => handleFormat('quote')}
+                title="引用"
+              >
+                <Quote className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                className="hover:text-indigo-400 p-1 rounded hover:bg-slate-800/50" 
+                onClick={() => handleFormat('table')}
+                title="表格"
+              >
+                <Table className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Links, Media */}
+            <div className="flex items-center space-x-1">
+              <button 
+                className="hover:text-indigo-400 p-1 rounded hover:bg-slate-800/50" 
+                onClick={() => handleFormat('link')}
+                title="链接"
+              >
+                <Link className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                className="hover:text-indigo-400 p-1 rounded hover:bg-slate-800/50" 
+                onClick={() => handleFormat('image')}
+                title="图片"
+              >
+                <Image className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                className="hover:text-indigo-400 p-1 px-1.5 rounded hover:bg-slate-800/50 text-[10px] font-mono leading-none" 
+                onClick={() => handleFormat('hr')}
+                title="水平分割线"
+              >
+                &mdash;
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-3 shrink-0 ml-4">
+            <button 
+              className="hover:text-pink-400 font-bold text-[10px] hover:underline"
+              onClick={() => handleFormat('tag')}
+              title="插入多级层级结构标签，分类文档"
+            >
+              # 标签层级
+            </button>
+            <button 
+              className="hover:text-emerald-400 font-bold text-[10px] hover:underline flex items-center gap-1"
+              onClick={() => handleFormat('calendar')}
+              title="日历联动：将当天日期转换为事件"
+            >
+              📅 联动日期
+            </button>
+          </div>
         </div>
       )}
 
       {/* WORKSPACE AREA SCALABLE BY FONT CLASSES */}
       <div className="flex-1 flex overflow-hidden">
         {(editorMode === 'edit' || editorMode === 'split') && (
-          <div className="flex-1 h-full bg-[#111827]">
+          <div className="flex-1 h-full bg-[#111827] flex">
             <textarea
+              id="note-editor-textarea"
               value={activeNote.content}
-              onChange={(e) => updateActiveNote(activeNote.title, e.target.value)}
-              className={fontClasses.editor}
+              onChange={(e) => updateActiveNote(activeNote.title, e.target.value, {})}
+              className={`${fontClasses.editor} w-full h-full p-6 outline-none border-none focus:ring-0 focus:outline-none resize-none bg-transparent`}
               placeholder="在此编写 Markdown..."
+              style={getFontSizeStyle(fontSizeLevel)}
             />
           </div>
         )}
@@ -1291,7 +1540,8 @@ jobs:
         {(editorMode === 'preview' || editorMode === 'split') && (
           <div className="flex-1 h-full overflow-y-auto p-8 bg-slate-900 code-preview">
             <div 
-              className={fontClasses.preview}
+              className={`${fontClasses.preview} max-w-none text-slate-300 font-sans leading-relaxed`}
+              style={getFontSizeStyle(fontSizeLevel)}
               dangerouslySetInnerHTML={{ __html: parseMarkdown(activeNote.content) }}
             />
           </div>

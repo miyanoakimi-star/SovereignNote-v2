@@ -6,6 +6,7 @@ export interface Note {
   updated_at: number;
   deleted: boolean;
   tags?: string[];
+  folder?: string;
 }
 
 export interface CalendarEvent {

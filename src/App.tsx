@@ -53,6 +53,7 @@ export default function App() {
   });
 
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
 
   useEffect(() => {
     const cached = getLocalNotes();
@@ -84,12 +85,12 @@ export default function App() {
     return notes.find(n => n.id === activeNoteId) || null;
   }, [notes, activeNoteId]);
 
-  function updateActiveNote(title: string, content: string) {
+  function updateActiveNote(title: string, content: string, extraFields?: Partial<Note>) {
     if (!activeNoteId) return;
     const now = Date.now();
     const updated = notes.map(n => {
       if (n.id === activeNoteId) {
-        return { ...n, title, content, updated_at: now };
+        return { ...n, title, content, ...extraFields, updated_at: now };
       }
       return n;
     });
@@ -97,7 +98,7 @@ export default function App() {
     saveLocalNotes(updated);
   }
 
-  function handleCreateNote(initialTitle?: string, initialContent?: string) {
+  function handleCreateNote(initialTitle?: string, initialContent?: string, folder?: string) {
     const now = Date.now();
     const newNote: Note = {
       id: generateUUID(),
@@ -106,6 +107,7 @@ export default function App() {
       created_at: now,
       updated_at: now,
       deleted: false,
+      folder: folder,
     };
     const updated = [newNote, ...notes];
     setNotes(updated);
@@ -276,6 +278,8 @@ export default function App() {
           setSelectedTag(tag);
           setNavState('notes'); // switch to notes to show results
         }}
+        selectedFolder={selectedFolder}
+        setSelectedFolder={setSelectedFolder}
         fontSizeLevel={fontSizeLevel}
         setFontSizeLevel={setFontSizeLevel}
         customEvents={customEvents}
@@ -302,6 +306,8 @@ export default function App() {
         setNavState={setNavState}
         handleExportDatabase={handleExportDatabase}
         handleImportDatabase={handleImportDatabase}
+        isPartitionOpen={isPartitionOpen}
+        setIsPartitionOpen={setIsPartitionOpen}
       />
     </div>
   );
