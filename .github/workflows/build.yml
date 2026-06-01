@@ -2,8 +2,12 @@ name: SovereignNote 自动构建与 Release 发布流水线
 
 on:
   push:
+    branches:
+      - master
+      - main
     tags:
       - 'v*' # 当推送以 v 开头的标签（例如 v2.1.0）时，触发自动发布流程
+  workflow_dispatch:
 
 # 强制对齐 Node 24 隔离环境，消除 Node 20 弃用警告
 env:
@@ -155,17 +159,29 @@ jobs:
           cp artifacts/SovereignNote_Android_APK/release/app-release-unsigned.apk release_assets/SovereignNote_Android_Release_Unsigned.apk
           ls -lh release_assets/
 
+      - name: 🟢 确立发布的 Tag 版本名称
+        id: get_tag
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "TAG_NAME=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          else
+            VERSION=$(node -p "require('./package.json').version")
+            echo "TAG_NAME=v$VERSION" >> $GITHUB_OUTPUT
+          fi
+
       - name: ⚔️ 创建 Release 并上传所有资产
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.get_tag.outputs.TAG_NAME }}
           files: |
             release_assets/SovereignNote_Windows_x64.exe
             release_assets/SovereignNote_Windows_ia32.exe
             release_assets/SovereignNote_Android_Debug.apk
             release_assets/SovereignNote_Android_Release_Unsigned.apk
-          name: SovereignNote 主权笔记 ${{ github.ref_name }} 正式发布版
+          name: SovereignNote 主权笔记 ${{ steps.get_tag.outputs.TAG_NAME }} 正式发布版
           body: |
-            ## ⚔️ SovereignNote 主权笔记 ${{ github.ref_name }}
+            ## ⚔️ SovereignNote 主权笔记 ${{ steps.get_tag.outputs.TAG_NAME }}
             
             本版本由 GitHub Actions 自动化流水线多架构矩阵全自动编译生成。
             
