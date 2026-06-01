@@ -1,4 +1,4 @@
-import { Search, FileText, Tag, Calendar, Settings, ChevronLeft, Menu } from 'lucide-react';
+import { Search, FileText, Tag, Calendar, Settings, ChevronLeft, Menu, Rocket } from 'lucide-react';
 import { NavState } from '../types';
 
 interface SidebarProps {
@@ -47,9 +47,10 @@ export default function Sidebar({ navState, setNavState, isOpen, setIsOpen, sear
       </div>
 
       <nav className="flex-1 px-2 space-y-1 overflow-y-auto">
-        <NavItem active={navState === 'notes'} onClick={() => setNavState('notes')} icon={<FileText />} label="笔记" />
-        <NavItem active={navState === 'tags'} onClick={() => setNavState('tags')} icon={<Tag />} label="标签" />
-        <NavItem active={navState === 'calendar'} onClick={() => setNavState('calendar')} icon={<Calendar />} label="日历" />
+        <NavItem active={navState === 'notes'} onClick={() => setNavState('notes')} icon={<FileText className="w-4 h-4 text-indigo-400" />} label="笔记" />
+        <NavItem active={navState === 'tags'} onClick={() => setNavState('tags')} icon={<Tag className="w-4 h-4 text-pink-400" />} label="标签" />
+        <NavItem active={navState === 'calendar'} onClick={() => setNavState('calendar')} icon={<Calendar className="w-4 h-4 text-emerald-400" />} label="日历" />
+        <NavItem active={navState === 'releases'} onClick={() => setNavState('releases')} icon={<Rocket className="w-4 h-4 text-amber-400 animate-pulse" />} label="版本发布 (Releases)" />
       </nav>
 
       <div className="p-2 border-t border-slate-800 shrink-0">

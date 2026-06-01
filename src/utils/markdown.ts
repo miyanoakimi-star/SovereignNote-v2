@@ -39,7 +39,7 @@ export function parseMarkdown(md: string): string {
   html = html.replace(/\*([^*]+)\*/g, '<em class="italic text-gray-800">$1</em>');
 
   // Hashtags (#tag_name) -> highlights beautifully
-  html = html.replace(/(^|\s)#([a-zA-Z0-9_\u4e00-\u9fa5]+)/g, '$1<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800 border border-indigo-200 cursor-pointer hover:bg-indigo-200 transition-colors">#$2</span>');
+  html = html.replace(/(^|\s)#([a-zA-Z0-9_\u4e00-\u9fa5/]+)/g, '$1<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-indigo-900/40 text-indigo-300 border border-indigo-500/30 cursor-pointer hover:bg-indigo-900/60 transition-colors">#$2</span>');
 
   // Horizontal Rule (---)
   html = html.replace(/^---$/gm, '<hr class="my-6 border-t border-gray-200" />');
@@ -87,8 +87,8 @@ export function parseMarkdown(md: string): string {
  * Extracts unique hashtags (e.g. #personal, #rust) from a Markdown string
  */
 export function extractTags(content: string): string[] {
-  const matches = content.match(/(^|\s)#([a-zA-Z0-9_\u4e00-\u9fa5]+)/g);
+  const matches = content.match(/(^|\s)#([a-zA-Z0-9_\u4e00-\u9fa5/]+)/g);
   if (!matches) return [];
-  const tags = matches.map(m => m.trim().substring(1)); // strip #
+  const tags = matches.map(m => m.trim().substring(1)).filter(t => !t.endsWith('/') && t.length > 0);
   return Array.from(new Set(tags));
 }
