@@ -1,3 +1,55 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer utilities {
+  .profile-win * {
+    /* 隐藏移动端臃肿的大间距 */
+  }
+  
+  .profile-win ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .profile-win ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .profile-win ::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 4px;
+  }
+  .profile-win ::-webkit-scrollbar-thumb:hover {
+    background: #475569;
+  }
+  
+  .profile-tablet button, .profile-tablet .clickable {
+    min-height: 46px; /* 触控热区扩容 */
+  }
+
+  .profile-android13 .bottom-safe-area {
+    padding-bottom: env(safe-area-inset-bottom, 20px);
+  }
+  .profile-android13 .smooth-scroll {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .profile-android5 * {
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+  }
+  
+  /* Fallback gap for old android (flex gap substitute) */
+  .profile-android5 .flex.gap-2 > * {
+    margin: 4px;
+  }
+  .profile-android5 .flex.gap-4 > * {
+    margin: 8px;
+  }
+}
+
+/* Base custom styles */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: #020617; /* slate-950 */
+  color: #e2e8f0; /* slate-200 */
+}

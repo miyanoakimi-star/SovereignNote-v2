@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { NavState, Note, CalendarEvent } from '../types';
 import { parseMarkdown } from '../utils/markdown';
 import { getLunarInfo } from '../utils/lunar';
+import Whiteboard from './Whiteboard';
+import Mindmap from './Mindmap';
 import { 
   Layout, Eye, FileDown, EyeOff, Settings, Calendar as CalendarIcon, 
   Database, ChevronLeft, ChevronRight, X, Server, Sliders, Rocket, Terminal, Check, RefreshCw,
@@ -21,7 +23,7 @@ interface MainAreaProps {
   customFestivals: Record<string, string>;
   setCustomFestivals: (festivals: Record<string, string>) => void;
   notes: Note[];
-  handleCreateNote: (initialTitle?: string, initialContent?: string, folder?: string) => void;
+  handleCreateNote: (initialTitle?: string, initialContent?: string, folder?: string, extraFields?: Partial<Note>) => void;
   setActiveNoteId: (id: string | null) => void;
   setNavState: (state: NavState) => void;
   handleExportDatabase: () => void;
@@ -1073,6 +1075,7 @@ jobs:
                 <div 
                   key={`day-${day}`} 
                   onClick={() => setSelectedCalendarDate(formattedDate)}
+                  title={`公历: ${formattedDate}${lunarInfo.gzYear ? `\n农历: ${lunarInfo.gzYear} ${lunarInfo.lunarMonthName || ''}${lunarInfo.lunarDayName}` : ''}${lunarInfo.jpEra ? `\n日本年号: ${lunarInfo.jpEra}` : ''}${lunarInfo.kokiYear ? `\n皇纪: ${lunarInfo.kokiYear}` : ''}`}
                   className={`bg-slate-950/90 p-2 min-h-[110px] border-t border-slate-800 group hover:bg-slate-900/50 cursor-pointer transition-colors relative flex flex-col justify-between ${
                     isToday ? 'ring-2 ring-indigo-500 ring-inset bg-indigo-900/10' : ''
                   }`}
@@ -1121,32 +1124,58 @@ jobs:
         </div>
 
         {/* CALENDAR EVENT DETAIL PROMPT MODAL */}
-        {selectedCalendarDate && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 select-none">
-            <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 w-full max-w-md shadow-2xl space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div className="flex items-center space-x-2">
-                  <CalendarIcon className="w-5 h-5 text-indigo-400" />
-                  <h3 className="font-bold text-slate-100 text-sm">
-                    {selectedCalendarDate} 的日程与联动
-                  </h3>
-                </div>
-                <button 
-                  onClick={() => {
-                    setSelectedCalendarDate(null);
-                    setNewEventTitle('');
-                    setNewEventNoteId('');
-                    setNewFestivalName('');
-                  }} 
-                  className="text-slate-500 hover:text-slate-300 p-1 rounded-lg"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+        {selectedCalendarDate && (() => {
+          const [yStr, mStr, dStr] = selectedCalendarDate.split('-');
+          const selYear = parseInt(yStr, 10) || 2026;
+          const selMonth = parseInt(mStr, 10) || 6;
+          const selDay = parseInt(dStr, 10) || 1;
+          const selLunar = getLunarInfo(selYear, selMonth, selDay, customFestivals);
 
-              {/* LIST COMPONENT CURRENTLY LINKED */}
-              <div className="space-y-2">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">1. 包含的联动活动</span>
+          return (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 select-none">
+              <div className="bg-slate-900 rounded-2xl border border-slate-800 p-6 w-full max-w-md shadow-2xl space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center space-x-2">
+                    <CalendarIcon className="w-5 h-5 text-indigo-400" />
+                    <h3 className="font-bold text-slate-100 text-sm">
+                      {selectedCalendarDate} 的日程与联动
+                    </h3>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setSelectedCalendarDate(null);
+                      setNewEventTitle('');
+                      setNewEventNoteId('');
+                      setNewFestivalName('');
+                    }} 
+                    className="text-slate-500 hover:text-slate-300 p-1 rounded-lg"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Multilingual Traditional & Era Calendars Info Row */}
+                <div className="flex flex-wrap gap-2 text-[10px] text-slate-400 bg-slate-950/50 p-2.5 rounded-lg border border-slate-800/60 font-mono">
+                  {selLunar.gzYear && (
+                    <span className="bg-indigo-950/40 text-indigo-400 px-2 py-0.5 rounded border border-indigo-900/40">
+                      🏮 农历: {selLunar.gzYear} {selLunar.lunarMonthName || ''}{selLunar.lunarDayName}
+                    </span>
+                  )}
+                  {selLunar.jpEra && (
+                    <span className="bg-emerald-950/40 text-emerald-400 px-2 py-0.5 rounded border border-emerald-900/40">
+                      🌸 日本年号: {selLunar.jpEra}
+                    </span>
+                  )}
+                  {selLunar.kokiYear && (
+                    <span className="bg-amber-950/40 text-amber-400 px-2 py-0.5 rounded border border-amber-900/40">
+                      ⚔️ 皇纪: {selLunar.kokiYear}
+                    </span>
+                  )}
+                </div>
+
+                {/* LIST COMPONENT CURRENTLY LINKED */}
+                <div className="space-y-2">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">1. 包含的联动活动</span>
                 
                 {activeDateEvents.length === 0 && activeDateLinkedNotes.length === 0 ? (
                   <p className="text-xs text-slate-500 italic py-1 leading-relaxed">这一天暂无进行中的活动日程和直接联动文章笔记。</p>
@@ -1312,7 +1341,8 @@ jobs:
               </div>
             </div>
           </div>
-        )}
+        );
+      })()}
       </div>
     );
   }
@@ -1602,30 +1632,44 @@ jobs:
 
       {/* WORKSPACE AREA SCALABLE BY FONT CLASSES */}
       <div className="flex-1 flex overflow-hidden">
-        {(editorMode === 'edit' || editorMode === 'split') && (
-          <div className="flex-1 h-full bg-[#111827] flex">
-            <textarea
-              id="note-editor-textarea"
-              value={activeNote.content}
-              onChange={(e) => handleNoteChange(activeNote.title, e.target.value, {})}
-              onKeyDown={handleEditorKeyDown}
-              className={`${fontClasses.editor} w-full h-full p-6 outline-none border-none focus:ring-0 focus:outline-none resize-none bg-transparent`}
-              placeholder="在此编写 Markdown..."
-              style={getFontSizeStyle(fontSizeLevel)}
-            />
-          </div>
-        )}
+        {activeNote.type === 'whiteboard' ? (
+          <Whiteboard 
+            paths={activeNote.content ? JSON.parse(activeNote.content) : []} 
+            onChange={(paths) => handleNoteChange(activeNote.title, JSON.stringify(paths))}
+          />
+        ) : activeNote.type === 'mindmap' ? (
+          <Mindmap 
+            data={activeNote.mindmapData} 
+            onChange={(data) => handleNoteChange(activeNote.title, activeNote.content, { mindmapData: data })}
+          />
+        ) : (
+          <>
+            {(editorMode === 'edit' || editorMode === 'split') && (
+              <div className="flex-1 h-full bg-[#111827] flex">
+                <textarea
+                  id="note-editor-textarea"
+                  value={activeNote.content}
+                  onChange={(e) => handleNoteChange(activeNote.title, e.target.value, {})}
+                  onKeyDown={handleEditorKeyDown}
+                  className={`${fontClasses.editor} w-full h-full p-6 outline-none border-none focus:ring-0 focus:outline-none resize-none bg-transparent`}
+                  placeholder="在此编写 Markdown..."
+                  style={getFontSizeStyle(fontSizeLevel)}
+                />
+              </div>
+            )}
 
-        {editorMode === 'split' && <div className="w-px bg-slate-800" />}
+            {editorMode === 'split' && <div className="w-px bg-slate-800" />}
 
-        {(editorMode === 'preview' || editorMode === 'split') && (
-          <div className="flex-1 h-full overflow-y-auto p-8 bg-slate-900 code-preview">
-            <div 
-              className={`${fontClasses.preview} max-w-none text-slate-300 font-sans leading-relaxed`}
-              style={getFontSizeStyle(fontSizeLevel)}
-              dangerouslySetInnerHTML={{ __html: parseMarkdown(activeNote.content) }}
-            />
-          </div>
+            {(editorMode === 'preview' || editorMode === 'split') && (
+              <div className="flex-1 h-full overflow-y-auto p-8 bg-slate-900 code-preview">
+                <div 
+                  className={`${fontClasses.preview} max-w-none text-slate-300 font-sans leading-relaxed`}
+                  style={getFontSizeStyle(fontSizeLevel)}
+                  dangerouslySetInnerHTML={{ __html: parseMarkdown(activeNote.content) }}
+                />
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

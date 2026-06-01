@@ -13,7 +13,7 @@ interface PartitionBarProps {
   activeNoteId: string | null;
   setActiveNoteId: (id: string | null) => void;
   searchQuery: string;
-  handleCreateNote: (initialTitle?: string, initialContent?: string, folder?: string) => void;
+  handleCreateNote: (initialTitle?: string, initialContent?: string, folder?: string, extraFields?: Partial<Note>) => void;
   handleDeleteNote: (id: string) => void;
   updateNote: (id: string, title: string, content: string, extraFields?: Partial<Note>) => void;
   selectedTag: string | null;
@@ -118,15 +118,9 @@ export default function PartitionBar({
       }
     };
     extractPaths(tagTree);
-    const textBlob = new Blob([tagList.join('\n')], { type: 'text/plain' });
-    const url = URL.createObjectURL(textBlob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `sovereign_tags_catalog_${new Date().toISOString().slice(0,10)}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    import('../utils/export').then(({ universalExport }) => {
+      universalExport(tagList.join('\n'), `sovereign_tags_catalog_${new Date().toISOString().slice(0,10)}.txt`, 'text/plain');
+    });
   };
 
   // Import high fidelity multi levels tags
@@ -293,8 +287,27 @@ export default function PartitionBar({
                 style={getDynamicFontSizeStyle(fontSizeLevel, 12)}
               >
                 <Plus className="w-4 h-4" />
-                <span>新建笔记 {selectedFolder && `(归入 ${selectedFolder})`}</span>
+                <span>笔记</span>
               </button>
+              <button
+                onClick={() => handleCreateNote('白板', '[]', selectedFolder || undefined, { type: 'whiteboard' })}
+                className="flex-1 flex items-center justify-center space-x-1.5 py-1.5 rounded-lg bg-emerald-600/15 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 font-semibold text-xs transition-colors"
+                style={getDynamicFontSizeStyle(fontSizeLevel, 12)}
+              >
+                <Plus className="w-4 h-4" />
+                <span>白板</span>
+              </button>
+              <button
+                onClick={() => handleCreateNote('导图', '', selectedFolder || undefined, { type: 'mindmap' })}
+                className="flex-1 flex items-center justify-center space-x-1.5 py-1.5 rounded-lg bg-rose-600/15 hover:bg-rose-600/30 text-rose-400 border border-rose-500/30 font-semibold text-xs transition-colors"
+                style={getDynamicFontSizeStyle(fontSizeLevel, 12)}
+              >
+                <Plus className="w-4 h-4" />
+                <span>导图</span>
+              </button>
+            </div>
+            
+            <div className="flex gap-2">
               <button
                 onClick={() => {
                   setIsBatchMode(!isBatchMode);

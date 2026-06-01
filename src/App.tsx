@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import PartitionBar from './components/PartitionBar';
 import MainArea from './components/MainArea';
 import { getLocalNotes, saveLocalNotes } from './lib/api';
+import { universalExport } from './utils/export';
 
 function generateUUID(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -102,16 +103,18 @@ export default function App() {
     updateNote(activeNoteId, title, content, extraFields);
   }
 
-  function handleCreateNote(initialTitle?: string, initialContent?: string, folder?: string) {
+  function handleCreateNote(initialTitle?: string, initialContent?: string, folder?: string, extraFields?: Partial<Note>) {
     const now = Date.now();
     const newNote: Note = {
       id: generateUUID(),
       title: initialTitle || '无标题笔记',
       content: initialContent || '# 无标题笔记\n\n开始写作...',
+      type: 'markdown',
       created_at: now,
       updated_at: now,
       deleted: false,
       folder: folder,
+      ...extraFields
     };
     const updated = [newNote, ...notes];
     setNotes(updated);
@@ -145,15 +148,9 @@ export default function App() {
       customFestivals,
       version: "1.0.0"
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `sovereign_notes_db_backup_${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const jsonStr = JSON.stringify(data, null, 2);
+    const filename = `sovereign_notes_db_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    universalExport(jsonStr, filename, 'application/json');
   }
 
   // Import full database from JSON content
