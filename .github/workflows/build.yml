@@ -78,12 +78,19 @@ jobs:
         run: |
           cd core-backend
           cargo build --release --target ${{ matrix.target }} --bin sovereign-core-exe
+          if ("${{ matrix.target }}" -eq "x86_64-pc-windows-msvc") {
+            Copy-Item target/${{ matrix.target }}/release/sovereign-core-exe.exe target/${{ matrix.target }}/release/SovereignNote_Windows_x64.exe
+          } else {
+            Copy-Item target/${{ matrix.target }}/release/sovereign-core-exe.exe target/${{ matrix.target }}/release/SovereignNote_Windows_ia32.exe
+          }
 
       - name: 💾 暂存 Windows 编译程序
         uses: actions/upload-artifact@v4
         with:
           name: SovereignNote_Windows_${{ matrix.target }}
-          path: core-backend/target/${{ matrix.target }}/release/sovereign-core-exe.exe
+          path: |
+            core-backend/target/${{ matrix.target }}/release/SovereignNote_Windows_x64.exe
+            core-backend/target/${{ matrix.target }}/release/SovereignNote_Windows_ia32.exe
           retention-days: 1
 
 
@@ -122,6 +129,7 @@ jobs:
       - name: ⚡ 构建 Android APK 原生包 (Debug/Release)
         run: |
           cd android
+          gradle wrapper
           chmod +x gradlew
           ./gradlew assembleRelease
           ./gradlew assembleDebug
@@ -151,10 +159,9 @@ jobs:
       - name: 🔄 重新整理并重命名打包文件
         run: |
           mkdir release_assets
-          # 提取并规范重命名 Windows x64 包
-          cp artifacts/SovereignNote_Windows_x86_64-pc-windows-msvc/sovereign-core-exe.exe release_assets/SovereignNote_Windows_x64.exe
-          # 提取并规范重命名 Windows ia32 包
-          cp artifacts/SovereignNote_Windows_i686-pc-windows-msvc/sovereign-core-exe.exe release_assets/SovereignNote_Windows_ia32.exe
+          # 提取打包出来的现成文件，不再需要重命名 exe
+          cp artifacts/SovereignNote_Windows_x86_64-pc-windows-msvc/SovereignNote_Windows_x64.exe release_assets/SovereignNote_Windows_x64.exe || true
+          cp artifacts/SovereignNote_Windows_i686-pc-windows-msvc/SovereignNote_Windows_ia32.exe release_assets/SovereignNote_Windows_ia32.exe || true
           # 提取并规范重命名 Android APK 包
           cp artifacts/SovereignNote_Android_APK/debug/app-debug.apk release_assets/SovereignNote_Android_Debug.apk
           cp artifacts/SovereignNote_Android_APK/release/app-release-unsigned.apk release_assets/SovereignNote_Android_Release_Unsigned.apk
