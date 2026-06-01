@@ -1,199 +1,189 @@
-name: SovereignNote v2 (Rust 铁血版) CI/CD
+name: SovereignNote 自动构建与 Release 发布流水线
 
 on:
   push:
-    branches: [ "main" ]
     tags:
-      - 'v*'
-  pull_request:
-    branches: [ "main" ]
+      - 'v*' # 当推送以 v 开头的标签（例如 v2.1.0）时，触发自动发布流程
 
+# 强制对齐 Node 24 隔离环境，消除 Node 20 弃用警告
 env:
   CARGO_TERM_COLOR: always
-  NODE_VERSION: '22'
-  RUST_VERSION: 'stable'
+  NODE_VERSION: 22
+  RUST_VERSION: stable
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# 核心权限配置：必须显式声明写权限，否则 GITHUB_TOKEN 无法创建 Release
+permissions:
+  contents: write
+
 jobs:
+
+# ==================== 1. 前端资源打包 ====================
   build-frontend:
-    name: Build Frontend (ES5 降级网页壳)
+    name: 📦 编译 Web 前端资产
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: 🚀 检出当前存储库源代码
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: 🟢 配置 Node.js 环境
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
-      - name: Dependency Cache (Node Modules)
-        uses: actions/cache@v4
-        with:
-          path: ./node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('./package-lock.json') }}
-
-      - name: Build Frontend (ES5 强硬降级)
+      - name: ⚡ 依赖安装与前端工程化生产打包
         run: |
           npm install
           npm run build
-        continue-on-error: true
 
-      - name: Upload Frontend Artifact
+      - name: 💾 暂存前端打包产物
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
-          path: dist/
+          path: dist
+          retention-days: 1
 
+
+# ==================== 2. WINDOWS 端编译 ====================
   build-windows:
-    name: Build Windows (${{ matrix.arch }})
+    name: 🪟 编译 Windows 原生桌面端
     needs: build-frontend
     runs-on: windows-2022
     strategy:
       matrix:
-        include:
-          - arch: x64
-            target: x86_64-pc-windows-msvc
-          - arch: ia32
-            target: i686-pc-windows-msvc
+        target: [x86_64-pc-windows-msvc, i686-pc-windows-msvc] # 双架构并行编译
     steps:
-      - name: Checkout Code
+      - name: 🚀 检出当前存储库源代码
         uses: actions/checkout@v4
 
-      - name: Download Frontend Artifact
+      - name: 📥 载入暂存的前端打包资产
         uses: actions/download-artifact@v4
         with:
           name: frontend-dist
           path: dist
 
-      - name: Setup Rust Toolchain
-        uses: dtolnay/rust-toolchain@master
+      - name: 🛠️ 配置并对齐 Rust 稳定版交叉编译工具链
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ matrix.target }}
 
-      - name: Rust Cargo Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: 'core-backend -> target'
-
-      - name: Build Rust Backend (物理嵌入与底层交叉编译)
+      - name: ⚡ 执行 Windows 二进制单文件硬核构筑
+        shell: pwsh
         run: |
           cd core-backend
           cargo build --release --target ${{ matrix.target }} --bin sovereign-core-exe
-        continue-on-error: true
 
-      - name: Rename Artifact
-        run: |
-          $Tag = "${{ github.ref_name }}"
-          if ($Tag -notmatch "^v") { $Tag = "nightly" }
-          $Ext = ".exe"
-          $TargetDir = "core-backend\target\${{ matrix.target }}\release"
-          $OriginalExe = "$TargetDir\sovereign-core-exe$Ext"
-          $NewName = "SovereignNote_${Tag}_windows_${{ matrix.arch }}$Ext"
-
-          if (Test-Path $OriginalExe) {
-            Rename-Item -Path $OriginalExe -NewName $NewName
-            echo "EXECUTABLE_NAME=$NewName" >> $env:GITHUB_ENV
-          } else {
-            echo "Executable not found! Skipping rename."
-          }
-        shell: powershell
-        continue-on-error: true
-
-      - name: Upload Windows Architecture Artifact
+      - name: 💾 暂存 Windows 编译程序
         uses: actions/upload-artifact@v4
         with:
-          name: SovereignNote_Windows_${{ matrix.arch }}
-          path: core-backend/target/${{ matrix.target }}/release/SovereignNote_*.exe
-          if-no-files-found: ignore
+          name: SovereignNote_Windows_${{ matrix.target }}
+          path: core-backend/target/${{ matrix.target }}/release/sovereign-core-exe.exe
+          retention-days: 1
 
+
+# ==================== 3. ANDROID 端编译 ====================
   build-android:
-    name: Build Android (APK)
+    name: 🤖 编译 Android 原生纯库 APK
     needs: build-frontend
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: 🚀 检出当前存储库源代码
         uses: actions/checkout@v4
 
-      - name: Download Frontend Artifact
+      - name: 📥 载入暂存的前端打包资产
         uses: actions/download-artifact@v4
         with:
           name: frontend-dist
           path: dist
 
-      - name: Setup Java JDK
+      - name: ☕ 配置 Java 17 基座环境
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Setup Android NDK & SDK
+      - name: 🤖 安装与对齐 Android SDK 交叉环境
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK Platform 30
-        run: sdkmanager "platforms;android-30" "build-tools;30.0.3"
+      - name: 🛠️ 强制补齐安卓交叉编译所缺的 API 等级静态库
+        run: |
+          sdkmanager "platforms;android-30" "build-tools;30.0.3"
 
-      - name: Setup Rust Toolchain (Android Targets)
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-          targets: aarch64-linux-android, armv7-linux-androideabi
+      - name: 🦀 配置 Rust 移动端编译架构目标
+        run: |
+          rustup update ${{ env.RUST_VERSION }}
+          rustup target add aarch64-linux-android armv7-linux-androideabi
 
-      - name: Rust Cargo Cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: 'core-backend -> target'
-
-      - name: Install cargo-apk Tool
+      - name: 📥 安装 cargo-apk 工具
         run: cargo install cargo-apk
 
-      - name: Build Android APK
+      - name: ⚡ 构建 Android APK 原生包
         run: |
           export NDK_HOME=$ANDROID_NDK_LATEST_HOME
           cd core-backend
-          # 动态剔除 [[bin]] 单元阻碍使得 cargo-apk 顺利作为 pure-library 进行编译，杜绝 Cdylib 冲突
+          # 动态剔除 [[bin]] 单元阻碍，使得 cargo-apk 顺利作为 pure-library 进行编译，杜绝 Cdylib 冲突
           sed -i '/\[\[bin\]\]/,/path = "src\/main.rs"/d' Cargo.toml
           cargo apk build --lib
-        continue-on-error: true
 
-      - name: Upload Android Artifact
+      - name: 💾 暂存 Android 安装包
         uses: actions/upload-artifact@v4
         with:
           name: SovereignNote_Android_APK
-          path: core-backend/target/debug/apk/*.apk
-          if-no-files-found: ignore
+          path: core-backend/target/debug/apk/sovereign_core.apk
+          retention-days: 1
 
-  release-publish:
-    name: Auto Release (资产分发)
+
+# ==================== 4. 自动化发布到 GITHUB RELEASE ====================
+  publish-release:
+    name: 🚀 聚合所有资产并全自动发布到 GitHub Releases
     needs: [build-windows, build-android]
-    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - name: Download Windows x64 Artifacts
+      - name: 🚀 检出当前存储库源代码
+        uses: actions/checkout@v4
+
+      - name: 📥 载入暂存的所有构建资产
         uses: actions/download-artifact@v4
         with:
-          name: SovereignNote_Windows_x64
-          path: artifacts/Windows_x64
+          path: artifacts
 
-      - name: Download Windows ia32 Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: SovereignNote_Windows_ia32
-          path: artifacts/Windows_ia32
+      - name: 🔄 重新整理并重命名打包文件
+        run: |
+          mkdir release_assets
+          # 提取并规范重命名 Windows x64 包
+          cp artifacts/SovereignNote_Windows_x86_64-pc-windows-msvc/sovereign-core-exe.exe release_assets/SovereignNote_Windows_x64.exe
+          # 提取并规范重命名 Windows ia32 包
+          cp artifacts/SovereignNote_Windows_i686-pc-windows-msvc/sovereign-core-exe.exe release_assets/SovereignNote_Windows_ia32.exe
+          # 提取并规范重命名 Android APK 包
+          cp artifacts/SovereignNote_Android_APK/sovereign_core.apk release_assets/SovereignNote_Android.apk
+          ls -lh release_assets/
 
-      - name: Download Android Artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: SovereignNote_Android_APK
-          path: artifacts/Android
-
-      - name: Publish to GitHub Releases
+      - name: ⚔️ 创建 Release 并上传所有资产
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/Windows_x64/*
-            artifacts/Windows_ia32/*
-            artifacts/Android/*
+            release_assets/SovereignNote_Windows_x64.exe
+            release_assets/SovereignNote_Windows_ia32.exe
+            release_assets/SovereignNote_Android.apk
+          name: SovereignNote 主权笔记 ${{ github.ref_name }} 正式发布版
+          body: |
+            ## ⚔️ SovereignNote 主权笔记 ${{ github.ref_name }}
+            
+            本版本由 GitHub Actions 自动化流水线多架构矩阵全自动编译生成。
+            
+            ### 📦 本次发布资产列表：
+            * \`SovereignNote_Windows_x64.exe\` (Windows 64位桌面原生单文件程序)
+            * \`SovereignNote_Windows_ia32.exe\` (Windows 32位桌面程序，支持老旧设备)
+            * \`SovereignNote_Android.apk\` (Android 移动端实体安装包，已内嵌完整前端资产)
+            
+            ### 🛠️ 核心功能与优化更新说明：
+            1. **双端无缝同步**：支持 WebDAV 端口与自定义根文件夹解析，云端数据随时备份。
+            2. **无障碍大字版**：集成全局 1 至 5 级字体比例弹性调节，阅读书写更舒适。
+            3. **文件夹级联分类**：完美支持笔记多级文件夹归类，侧边栏联动统计。
+            4. **高性能 SQLite 内核**：解决 Windows 下的 \`E0505\` 生命周期锁，运行极速顺滑。
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
