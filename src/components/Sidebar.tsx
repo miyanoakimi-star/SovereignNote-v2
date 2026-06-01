@@ -40,20 +40,20 @@ export default function Sidebar({ navState, setNavState, isOpen, setIsOpen, sear
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search universally..."
+            placeholder="全局搜索..."
             className="w-full h-9 pl-9 pr-4 text-xs bg-slate-900 border border-slate-800 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
           />
         </div>
       </div>
 
       <nav className="flex-1 px-2 space-y-1 overflow-y-auto">
-        <NavItem active={navState === 'notes'} onClick={() => setNavState('notes')} icon={<FileText />} label="Notes" />
-        <NavItem active={navState === 'tags'} onClick={() => setNavState('tags')} icon={<Tag />} label="Tags" />
-        <NavItem active={navState === 'calendar'} onClick={() => setNavState('calendar')} icon={<Calendar />} label="Calendar" />
+        <NavItem active={navState === 'notes'} onClick={() => setNavState('notes')} icon={<FileText />} label="笔记" />
+        <NavItem active={navState === 'tags'} onClick={() => setNavState('tags')} icon={<Tag />} label="标签" />
+        <NavItem active={navState === 'calendar'} onClick={() => setNavState('calendar')} icon={<Calendar />} label="日历" />
       </nav>
 
       <div className="p-2 border-t border-slate-800 shrink-0">
-        <NavItem active={navState === 'settings'} onClick={() => setNavState('settings')} icon={<Settings />} label="Settings" />
+        <NavItem active={navState === 'settings'} onClick={() => setNavState('settings')} icon={<Settings />} label="设置" />
       </div>
     </div>
   );

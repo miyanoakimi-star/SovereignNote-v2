@@ -52,8 +52,8 @@ export default function App() {
     const now = Date.now();
     const newNote: Note = {
       id: generateUUID(),
-      title: 'Untitled Note',
-      content: '# Untitled Note\n\nStart writing...',
+      title: '无标题笔记',
+      content: '# 无标题笔记\n\n开始写作...',
       created_at: now,
       updated_at: now,
       deleted: false,
@@ -66,7 +66,7 @@ export default function App() {
   }
 
   function handleDeleteNote(id: string) {
-    if (!window.confirm('Are you sure you want to delete this note?')) return;
+    if (!window.confirm('确定要删除此笔记吗？')) return;
     const now = Date.now();
     const updated = notes.map(n => {
       if (n.id === id) return { ...n, deleted: true, updated_at: now };
