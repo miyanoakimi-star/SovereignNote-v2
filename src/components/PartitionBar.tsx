@@ -15,6 +15,7 @@ interface PartitionBarProps {
   searchQuery: string;
   handleCreateNote: (initialTitle?: string, initialContent?: string, folder?: string) => void;
   handleDeleteNote: (id: string) => void;
+  updateNote: (id: string, title: string, content: string, extraFields?: Partial<Note>) => void;
   selectedTag: string | null;
   setSelectedTag: (tag: string | null) => void;
   selectedFolder: string | null;
@@ -44,6 +45,7 @@ export default function PartitionBar({
   searchQuery,
   handleCreateNote,
   handleDeleteNote,
+  updateNote,
   selectedTag,
   setSelectedTag,
   selectedFolder,
@@ -57,6 +59,13 @@ export default function PartitionBar({
 }: PartitionBarProps) {
   const [collapsedPaths, setCollapsedPaths] = useState<Record<string, boolean>>({});
   const [dragActive, setDragActive] = useState<boolean>(false);
+  const [isBatchMode, setIsBatchMode] = useState<boolean>(false);
+  const [selectedNoteIds, setSelectedNoteIds] = useState<Record<string, boolean>>({});
+
+  const getDynamicFontSizeStyle = (level: number, baseSize: number) => {
+    const factor = level === 1 ? 0.85 : level === 2 ? 1.0 : level === 3 ? 1.15 : level === 4 ? 1.3 : 1.45;
+    return { fontSize: `${baseSize * factor}px`, lineHeight: `${baseSize * factor * 1.35}px` };
+  };
 
   const nonDeletedNotes = useMemo(() => notes.filter(n => !n.deleted), [notes]);
 
@@ -199,9 +208,9 @@ export default function PartitionBar({
                 ) : (
                   <Hash className="w-3 h-3 text-slate-500 shrink-0" />
                 )}
-                <span className="truncate font-semibold text-slate-200">{child.name}</span>
+                <span className="truncate font-semibold text-slate-200" style={getDynamicFontSizeStyle(fontSizeLevel, 12)}>{child.name}</span>
               </div>
-              <span className="text-[10px] px-1.5 py-0.2 bg-slate-950 text-slate-400 rounded-full shrink-0 scale-90">{child.count}</span>
+              <span className="text-[10px] px-1.5 py-0.2 bg-slate-950 text-slate-400 rounded-full shrink-0 scale-90" style={getDynamicFontSizeStyle(fontSizeLevel, 10)}>{child.count}</span>
             </div>
             {!isCollapsed && hasChildren && (
               <div className="border-l border-slate-800/80 ml-3.5">
@@ -274,20 +283,130 @@ export default function PartitionBar({
         </button>
       </div>
 
-      {/* QUICK COMPONENT SCROLLER */}
       {navState === 'notes' && (
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Create Button */}
           <div className="p-3 bg-slate-950/10 shrink-0 space-y-3">
-            <button
-              onClick={() => handleCreateNote(undefined, undefined, selectedFolder || undefined)}
-              className="w-full flex items-center justify-center space-x-2 py-2 rounded-lg bg-indigo-600/15 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 font-semibold text-xs transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              <span>新建笔记 {selectedFolder && `(归入 ${selectedFolder})`}</span>
-            </button>
-            {selectedTag && (
-              <div className="mt-2 text-[11px] bg-indigo-950/40 text-indigo-300 border border-indigo-900/40 p-2 rounded-lg flex items-center justify-between">
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleCreateNote(undefined, undefined, selectedFolder || undefined)}
+                className="flex-1 flex items-center justify-center space-x-1.5 py-1.5 rounded-lg bg-indigo-600/15 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 font-semibold text-xs transition-colors"
+                style={getDynamicFontSizeStyle(fontSizeLevel, 12)}
+              >
+                <Plus className="w-4 h-4" />
+                <span>新建笔记 {selectedFolder && `(归入 ${selectedFolder})`}</span>
+              </button>
+              <button
+                onClick={() => {
+                  setIsBatchMode(!isBatchMode);
+                  setSelectedNoteIds({});
+                }}
+                className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all flex items-center gap-1 shrink-0 ${
+                  isBatchMode 
+                    ? 'bg-rose-600 border-rose-500 text-white shadow' 
+                    : 'bg-slate-900 border-slate-800 text-slate-300 hover:text-slate-100'
+                }`}
+                style={getDynamicFontSizeStyle(fontSizeLevel, 11)}
+              >
+                <span>⚙️ {isBatchMode ? '退出批量' : '批量操作'}</span>
+              </button>
+            </div>
+
+            {/* Batch Panel */}
+            {isBatchMode && (
+              <div className="p-2.5 bg-slate-950/40 border border-indigo-500/15 rounded-xl space-y-2.5 animate-fade-in">
+                <div className="flex items-center justify-between text-[10px] text-slate-400" style={getDynamicFontSizeStyle(fontSizeLevel, 10)}>
+                  <span>已选: <span className="text-indigo-400 font-bold">{Object.values(selectedNoteIds).filter(Boolean).length}</span> 个</span>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => {
+                        const nextSelects: Record<string, boolean> = {};
+                        filteredNotes.forEach(n => nextSelects[n.id] = true);
+                        setSelectedNoteIds(nextSelects);
+                      }}
+                      className="text-indigo-400 hover:underline font-semibold"
+                    >
+                      全选
+                    </button>
+                    <button 
+                      onClick={() => setSelectedNoteIds({})}
+                      className="text-slate-500 hover:underline"
+                    >
+                      清空
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-1">
+                  <button
+                    onClick={() => {
+                      const selectedList = filteredNotes.filter(n => selectedNoteIds[n.id]);
+                      if (selectedList.length === 0) {
+                        alert("请选定需要移动的笔记！");
+                        return;
+                      }
+                      const folderName = prompt("请输入将所选笔记批量归入的文件夹名称（若留空则调整为未分类）:");
+                      if (folderName === null) return;
+                      const cleanFolder = folderName.trim() || undefined;
+                      selectedList.forEach(n => {
+                        updateNote(n.id, n.title, n.content, { folder: cleanFolder });
+                      });
+                      alert(`已将 ${selectedList.length} 条笔记移动至 [${cleanFolder || "未分类"}] 文件夹！`);
+                      setSelectedNoteIds({});
+                      setIsBatchMode(false);
+                    }}
+                    className="py-1 bg-indigo-650 hover:bg-indigo-600 text-white font-bold rounded flex items-center justify-center gap-1"
+                    style={getDynamicFontSizeStyle(fontSizeLevel, 9)}
+                  >
+                    📁 归档
+                  </button>
+                  <button
+                    onClick={() => {
+                      const selectedList = filteredNotes.filter(n => selectedNoteIds[n.id]);
+                      if (selectedList.length === 0) {
+                        alert("请选定需要附加标签的笔记！");
+                        return;
+                      }
+                      const tagName = prompt("请输入需批量增设的标签名称 (例如: 日报/重要):");
+                      if (!tagName || !tagName.trim()) return;
+                      const cleanTag = tagName.trim().replace(/^#+/, '');
+                      selectedList.forEach(n => {
+                        const separator = n.content.endsWith(' ') || n.content.endsWith('\n') ? '' : ' ';
+                        updateNote(n.id, n.title, `${n.content}${separator}#${cleanTag}`, {});
+                      });
+                      alert(`已将 ${selectedList.length} 条笔记贴上标签 #${cleanTag}！`);
+                      setSelectedNoteIds({});
+                      setIsBatchMode(false);
+                    }}
+                    className="py-1 bg-pink-650 hover:bg-pink-600 text-white font-bold rounded flex items-center justify-center gap-1"
+                    style={getDynamicFontSizeStyle(fontSizeLevel, 9)}
+                  >
+                    🏷️ 贴签
+                  </button>
+                  <button
+                    onClick={() => {
+                      const selectedList = filteredNotes.filter(n => selectedNoteIds[n.id]);
+                      if (selectedList.length === 0) {
+                        alert("请选定需要删除的笔记！");
+                        return;
+                      }
+                      if (!confirm(`确定要直接彻底删除这 ${selectedList.length} 条选中的笔记吗？`)) return;
+                      selectedList.forEach(n => {
+                        handleDeleteNote(n.id);
+                      });
+                      setSelectedNoteIds({});
+                      setIsBatchMode(false);
+                    }}
+                    className="py-1 bg-rose-650 hover:bg-rose-600 text-white font-bold rounded flex items-center justify-center gap-1"
+                    style={getDynamicFontSizeStyle(fontSizeLevel, 9)}
+                  >
+                    🗑️ 删除
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {selectedTag && !isBatchMode && (
+              <div className="mt-2 text-[11px] bg-indigo-950/40 text-indigo-300 border border-indigo-900/40 p-2 rounded-lg flex items-center justify-between" style={getDynamicFontSizeStyle(fontSizeLevel, 11)}>
                 <span>过滤标签: <span className="font-bold underline">#{selectedTag}</span></span>
                 <button onClick={() => setSelectedTag(null)} className="hover:text-rose-400 font-extrabold px-1 text-xs">清除</button>
               </div>
@@ -296,7 +415,7 @@ export default function PartitionBar({
             {/* Folders List Inside Create Block */}
             <div className="pt-2.5 border-t border-slate-800/60 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1" style={getDynamicFontSizeStyle(fontSizeLevel, 10)}>
                   📁 文件夹分类
                 </span>
                 <button
@@ -308,6 +427,7 @@ export default function PartitionBar({
                     }
                   }}
                   className="text-[9px] bg-slate-800 hover:bg-slate-700 hover:text-white text-indigo-400 border border-slate-750 px-1.5 py-0.5 rounded font-bold transition-all animate-fade-in"
+                  style={getDynamicFontSizeStyle(fontSizeLevel, 9)}
                 >
                   + 新建
                 </button>
@@ -317,9 +437,10 @@ export default function PartitionBar({
                   onClick={() => setSelectedFolder(null)}
                   className={`text-[10px] px-2 py-0.5 rounded border transition-all flex items-center gap-1 ${
                     selectedFolder === null
-                      ? 'bg-indigo-600/20 text-indigo-450 border-indigo-500/30 font-bold'
-                      : 'bg-slate-950/30 text-slate-450 border-slate-800 hover:text-slate-200'
+                      ? 'bg-indigo-600/20 text-indigo-400 border-indigo-500/30 font-bold'
+                      : 'bg-slate-950/30 text-slate-400 border-slate-800 hover:text-slate-200'
                   }`}
+                  style={getDynamicFontSizeStyle(fontSizeLevel, 10)}
                 >
                   全部 ({nonDeletedNotes.length})
                 </button>
@@ -334,6 +455,7 @@ export default function PartitionBar({
                           ? 'bg-indigo-600/30 text-indigo-300 border-indigo-500/40 font-bold'
                           : 'bg-slate-950/30 text-slate-400 border-slate-800 hover:text-slate-200'
                       }`}
+                      style={getDynamicFontSizeStyle(fontSizeLevel, 10)}
                     >
                       <span className="truncate max-w-[80px]">📁 {folderName}</span>
                       <span className="text-[8px] bg-slate-900/60 text-slate-500 px-1 rounded-sm">{count}</span>
@@ -360,11 +482,23 @@ export default function PartitionBar({
                   .replace(/[#*`>-]/g, '')
                   .trim()
                   .slice(0, 45);
+
+                // Extract tag badges for this specific note
+                const noteTagsMatches = note.content.match(/(?:^|\s)#([a-zA-Z0-9_\u4e00-\u9fa5/]+)/g);
+                const noteTags = noteTagsMatches 
+                  ? Array.from(new Set(noteTagsMatches.map(m => m.trim().substring(1))))
+                  : [];
                 
                 return (
                   <div
                     key={note.id}
-                    onClick={() => setActiveNoteId(note.id)}
+                    onClick={() => {
+                      if (isBatchMode) {
+                        setSelectedNoteIds(prev => ({ ...prev, [note.id]: !prev[note.id] }));
+                      } else {
+                        setActiveNoteId(note.id);
+                      }
+                    }}
                     className={`p-4 cursor-pointer border-l-2 transition-all group ${
                       note.id === activeNoteId 
                         ? 'bg-slate-800/80 border-indigo-500 text-slate-100 shadow-inner' 
@@ -372,7 +506,20 @@ export default function PartitionBar({
                     }`}
                   >
                     <div className="flex justify-between items-center">
-                      <h4 className="font-bold text-xs truncate max-w-[190px]">{note.title || '无标题'}</h4>
+                      <div className="flex items-center gap-1.5 truncate max-w-[210px]">
+                        {isBatchMode && (
+                          <input 
+                            type="checkbox"
+                            checked={!!selectedNoteIds[note.id]}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              setSelectedNoteIds(prev => ({ ...prev, [note.id]: e.target.checked }));
+                            }}
+                            className="w-3.5 h-3.5 rounded bg-slate-950 border-slate-800 accent-indigo-500 cursor-pointer shrink-0"
+                          />
+                        )}
+                        <h4 className="font-bold truncate" style={getDynamicFontSizeStyle(fontSizeLevel, 12)}>{note.title || '无标题'}</h4>
+                      </div>
                       <button 
                         onClick={(e) => { e.stopPropagation(); handleDeleteNote(note.id); }} 
                         className="text-slate-600 hover:text-rose-400 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
@@ -381,10 +528,40 @@ export default function PartitionBar({
                         <Trash2 className="w-3 h-3" />
                       </button>
                     </div>
-                    <p className="text-[11px] text-slate-500 mt-1 line-clamp-2 leading-relaxed">
+                    <p className="text-slate-500 mt-1 line-clamp-2 leading-relaxed" style={getDynamicFontSizeStyle(fontSizeLevel, 11)}>
                       {summaryText || "点击编辑笔记具体内容..."}
                     </p>
-                    <div className="flex items-center justify-between text-[10px] text-slate-600 mt-2 font-mono">
+
+                    {/* Tags List & Quick Add Tag Badge */}
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {noteTags.slice(0, 3).map(tag => (
+                        <span key={tag} className="text-[9px] text-indigo-400 font-semibold px-1 py-0.2 bg-indigo-950/40 border border-indigo-900/40 rounded truncate max-w-[90px]" title={`#${tag}`}>
+                          #{tag.substring(tag.lastIndexOf('/') + 1)}
+                        </span>
+                      ))}
+                      {noteTags.length > 3 && (
+                        <span className="text-[9px] text-slate-500 font-mono px-1">+{noteTags.length - 3}</span>
+                      )}
+                      
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const tagName = prompt(`请输入要添加至笔记【${note.title}】的标签 (可使用 / 实现多级嵌套，如: 个人/备忘):`);
+                          if (tagName && tagName.trim()) {
+                            const cleanTag = tagName.trim().replace(/^#+/, '');
+                            const separator = note.content.endsWith(' ') || note.content.endsWith('\n') ? '' : ' ';
+                            updateNote(note.id, note.title, `${note.content}${separator}#${cleanTag}`, {});
+                            alert(`已成功为笔记添加 #${cleanTag} 标签！`);
+                          }
+                        }}
+                        className="text-[9px] text-slate-500 hover:text-indigo-400 bg-slate-950/20 hover:bg-slate-950/45 px-1 py-0.2 rounded border border-slate-805 font-bold transition-all cursor-pointer inline-flex items-center gap-0.5"
+                        title="在此笔记列表直接快捷添加标签"
+                      >
+                        + 贴标签
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between text-slate-600 mt-2 font-mono" style={getDynamicFontSizeStyle(fontSizeLevel, 10)}>
                       <span>{new Date(note.updated_at).toLocaleDateString(undefined, {month:'short', day:'numeric'})}</span>
                       {note.folder && (
                         <span className="text-[9px] bg-slate-950 text-indigo-400 px-1.5 py-0.2 rounded-full border border-indigo-500/10 truncate max-w-[80px]">📁 {note.folder}</span>
@@ -404,17 +581,40 @@ export default function PartitionBar({
         <div className="flex-1 flex flex-col overflow-hidden p-3 space-y-3">
           <div className="flex items-center gap-2 justify-between shrink-0">
             <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">标签目录(最大支持6层级)</span>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1">
+              <button 
+                onClick={() => {
+                  const tagName = prompt("请输入新建标签名称 (包括多层级如: 书籍/科幻/三体):");
+                  if (tagName && tagName.trim()) {
+                    const cleanTag = tagName.trim().replace(/^#+/, '');
+                    if (activeNoteId) {
+                      const active = notes.find(n => n.id === activeNoteId);
+                      if (active) {
+                        const separator = active.content.endsWith(' ') || active.content.endsWith('\n') ? '' : ' ';
+                        updateNote(active.id, active.title, `${active.content}${separator}#${cleanTag}`, {});
+                        alert(`标签 #${cleanTag} 已成功附加到当前打开的笔记：【${active.title}】！`);
+                        return;
+                      }
+                    }
+                    handleCreateNote(`新建 ${cleanTag} 关联笔记`, `# 新关联笔记\n\n此笔记附带您刚才在多级标签分类中配置的标签：\n\n#${cleanTag}\n\n您现在可以在此编辑内容。`);
+                    alert(`由于当前无活跃笔记，已自动生成一篇包含 #${cleanTag} 标签的新笔记！`);
+                  }
+                }} 
+                className="p-1 px-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                title="在多级标签目录直连新增项目"
+              >
+                + 新增标签
+              </button>
               <button 
                 onClick={importTags} 
-                className="p-1 px-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 rounded text-[10px] font-bold flex items-center gap-1"
+                className="p-1 px-1.5 bg-slate-800 hover:bg-slate-705 text-indigo-400 border border-slate-700 rounded text-[10px] font-bold flex items-center gap-1"
                 title="批量导入嵌套标签"
               >
                 <Upload className="w-2.5 h-2.5" /> 导入
               </button>
               <button 
                 onClick={exportTags} 
-                className="p-1 px-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 rounded text-[10px] font-bold flex items-center gap-1"
+                className="p-1 px-1.5 bg-slate-800 hover:bg-slate-705 text-indigo-400 border border-slate-700 rounded text-[10px] font-bold flex items-center gap-1"
                 title="导出标签纲要"
               >
                 <Download className="w-2.5 h-2.5" /> 导出
@@ -550,6 +750,40 @@ export default function PartitionBar({
                 />
               </label>
             </div>
+          </div>
+
+          {/* Sync Server URL Tool */}
+          <div className="space-y-2 pt-2">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1">
+              <HardDrive className="w-3 h-3" /> 数据中心同步绑定 (移动端特供)
+            </span>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="例如: http://192.168.1.100:3000"
+                defaultValue={localStorage.getItem('sovereign_sync_url') || ''}
+                className="flex-1 px-3 py-2 text-xs bg-slate-900 border border-slate-800 text-slate-300 rounded focus:border-indigo-500 outline-none"
+                id="sync-server-input"
+              />
+              <button
+                onClick={() => {
+                  const val = (document.getElementById('sync-server-input') as HTMLInputElement).value.trim();
+                  if (val) {
+                    localStorage.setItem('sovereign_sync_url', val);
+                    alert('数据中心同步地址已设定，后续同步将推向此IP源。');
+                  } else {
+                    localStorage.removeItem('sovereign_sync_url');
+                    alert('已清除同步IP，恢复仅本体闭合环境与相对路由模式。');
+                  }
+                }}
+                className="px-4 bg-slate-800 hover:bg-slate-700 text-indigo-400 font-bold text-[11px] border border-slate-700 rounded transition-colors whitespace-nowrap"
+              >
+                保存网络配置
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500 leading-relaxed">
+              安卓端如需热同步笔记至电脑端主机，可输入主机的 IP 与端口，配合局域网穿透完成云端互联。
+            </p>
           </div>
 
           {/* Virtual Drag and Drop Multi Folder / Batch File Parser */}

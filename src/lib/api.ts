@@ -1,7 +1,17 @@
 import { Note } from '../types';
 
-// 统一采用相对路径 `/api` 以避免任何跨域 (CORS) 与特定 IP/Port 绑定的错误
-const API_BASE = '/api';
+/**
+ * 动态获取后台 API 基址。
+ * - 对于同一主机提供的 Web 服务，默认为相对路径 `/api`
+ * - 对于 Capacitor (移动端) 或需要外挂同步的端点，可通过 localStorage 'sovereign_sync_url' 手动变更
+ */
+export function getApiBaseUrl(): string {
+  const customUrl = localStorage.getItem('sovereign_sync_url');
+  if (customUrl) {
+    return customUrl.endsWith('/') ? customUrl.slice(0, -1) + '/api' : customUrl + '/api';
+  }
+  return '/api';
+}
 
 /**
   * 核心 LWW-Register 合并算法：
@@ -58,7 +68,7 @@ export async function syncWithBackend(): Promise<{ success: boolean; notes: Note
   const localNotes = getLocalNotes();
 
   try {
-    const response = await fetch(`${API_BASE}/notes/sync`, {
+    const response = await fetch(`${getApiBaseUrl()}/notes/sync`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

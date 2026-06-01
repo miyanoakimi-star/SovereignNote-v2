@@ -85,17 +85,21 @@ export default function App() {
     return notes.find(n => n.id === activeNoteId) || null;
   }, [notes, activeNoteId]);
 
-  function updateActiveNote(title: string, content: string, extraFields?: Partial<Note>) {
-    if (!activeNoteId) return;
+  function updateNote(id: string, title: string, content: string, extraFields?: Partial<Note>) {
     const now = Date.now();
     const updated = notes.map(n => {
-      if (n.id === activeNoteId) {
+      if (n.id === id) {
         return { ...n, title, content, ...extraFields, updated_at: now };
       }
       return n;
     });
     setNotes(updated);
     saveLocalNotes(updated);
+  }
+
+  function updateActiveNote(title: string, content: string, extraFields?: Partial<Note>) {
+    if (!activeNoteId) return;
+    updateNote(activeNoteId, title, content, extraFields);
   }
 
   function handleCreateNote(initialTitle?: string, initialContent?: string, folder?: string) {
@@ -273,6 +277,7 @@ export default function App() {
         searchQuery={searchQuery}
         handleCreateNote={handleCreateNote}
         handleDeleteNote={handleDeleteNote}
+        updateNote={updateNote}
         selectedTag={selectedTag}
         setSelectedTag={(tag) => {
           setSelectedTag(tag);

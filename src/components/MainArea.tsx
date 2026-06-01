@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { NavState, Note, CalendarEvent } from '../types';
 import { parseMarkdown } from '../utils/markdown';
 import { getLunarInfo } from '../utils/lunar';
@@ -118,6 +118,86 @@ export default function MainArea({
 
   const fontClasses = useMemo(() => getFontSizeClasses(fontSizeLevel), [fontSizeLevel]);
 
+  // UNDO / REDO HISTORY MANAGEMENT HANDLERS
+  const undoStack = useRef<{ title: string, content: string }[]>([]);
+  const redoStack = useRef<{ title: string, content: string }[]>([]);
+  const lastSavedState = useRef<{ id: string; title: string; content: string } | null>(null);
+
+  useEffect(() => {
+    if (activeNote) {
+      if (!lastSavedState.current || lastSavedState.current.id !== activeNote.id) {
+        undoStack.current = [];
+        redoStack.current = [];
+        lastSavedState.current = { id: activeNote.id, title: activeNote.title, content: activeNote.content };
+      }
+    } else {
+      undoStack.current = [];
+      redoStack.current = [];
+      lastSavedState.current = null;
+    }
+  }, [activeNote?.id]);
+
+  const handleNoteChange = (newTitle: string, newContent: string, extraFields?: any) => {
+    if (!activeNote || !lastSavedState.current) return;
+    
+    const prevTitle = lastSavedState.current.title;
+    const prevContent = lastSavedState.current.content;
+
+    if (prevTitle !== newTitle || prevContent !== newContent) {
+      const lastUndo = undoStack.current[undoStack.current.length - 1];
+      if (!lastUndo || lastUndo.title !== prevTitle || lastUndo.content !== prevContent) {
+        if (undoStack.current.length >= 100) {
+          undoStack.current.shift();
+        }
+        undoStack.current.push({ title: prevTitle, content: prevContent });
+        redoStack.current = []; // Clear redo on fresh manual edit
+      }
+      lastSavedState.current = { id: activeNote.id, title: newTitle, content: newContent };
+    }
+    updateActiveNote(newTitle, newContent, extraFields);
+  };
+
+  const handleUndo = (e?: React.SyntheticEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (undoStack.current.length > 0 && activeNote && lastSavedState.current) {
+      const popped = undoStack.current.pop()!;
+      redoStack.current.push({ title: lastSavedState.current.title, content: lastSavedState.current.content });
+      lastSavedState.current = { id: activeNote.id, title: popped.title, content: popped.content };
+      updateActiveNote(popped.title, popped.content, {});
+    }
+  };
+
+  const handleRedo = (e?: React.SyntheticEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (redoStack.current.length > 0 && activeNote && lastSavedState.current) {
+      const popped = redoStack.current.pop()!;
+      undoStack.current.push({ title: lastSavedState.current.title, content: lastSavedState.current.content });
+      lastSavedState.current = { id: activeNote.id, title: popped.title, content: popped.content };
+      updateActiveNote(popped.title, popped.content, {});
+    }
+  };
+
+  const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Intercept Ctrl+Z or Cmd+Z
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      if (e.shiftKey) {
+        handleRedo(e);
+      } else {
+        handleUndo(e);
+      }
+    }
+    // Intercept Ctrl+Y or Cmd+Y
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+      handleRedo(e);
+    }
+  };
+
   const getFontSizeStyle = (level: number) => {
     switch (level) {
       case 1: return { fontSize: '12px' };
@@ -206,7 +286,7 @@ export default function MainArea({
     }
 
     const updatedContent = text.substring(0, start) + replacement + text.substring(end);
-    updateActiveNote(activeNote.title, updatedContent, {});
+    handleNoteChange(activeNote.title, updatedContent, {});
 
     // Refocus and place selections
     setTimeout(() => {
@@ -1285,7 +1365,7 @@ jobs:
           <input
             type="text"
             value={activeNote.title}
-            onChange={(e) => updateActiveNote(e.target.value, activeNote.content)}
+            onChange={(e) => handleNoteChange(e.target.value, activeNote.content)}
             placeholder="输入标题..."
             className={fontClasses.title}
           />
@@ -1301,10 +1381,10 @@ jobs:
                 if (val === "___create_new___") {
                   const newF = prompt("请输入新建文件夹名称:");
                   if (newF && newF.trim()) {
-                    updateActiveNote(activeNote.title, activeNote.content, { folder: newF.trim() });
+                    handleNoteChange(activeNote.title, activeNote.content, { folder: newF.trim() });
                   }
                 } else {
-                  updateActiveNote(activeNote.title, activeNote.content, { folder: val || undefined });
+                  handleNoteChange(activeNote.title, activeNote.content, { folder: val || undefined });
                 }
               }}
               className="bg-transparent text-[11px] text-slate-355 outline-none border-none focus:ring-0 cursor-pointer pr-1"
@@ -1527,7 +1607,8 @@ jobs:
             <textarea
               id="note-editor-textarea"
               value={activeNote.content}
-              onChange={(e) => updateActiveNote(activeNote.title, e.target.value, {})}
+              onChange={(e) => handleNoteChange(activeNote.title, e.target.value, {})}
+              onKeyDown={handleEditorKeyDown}
               className={`${fontClasses.editor} w-full h-full p-6 outline-none border-none focus:ring-0 focus:outline-none resize-none bg-transparent`}
               placeholder="在此编写 Markdown..."
               style={getFontSizeStyle(fontSizeLevel)}
