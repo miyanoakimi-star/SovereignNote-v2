@@ -12,6 +12,7 @@ env:
   CARGO_TERM_COLOR: always
   NODE_VERSION: '22'
   RUST_VERSION: 'stable'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build-frontend:
@@ -47,7 +48,7 @@ jobs:
   build-windows:
     name: Build Windows (${{ matrix.arch }})
     needs: build-frontend
-    runs-on: windows-latest
+    runs-on: windows-2022
     strategy:
       matrix:
         include:
@@ -122,7 +123,7 @@ jobs:
           path: dist
 
       - name: Setup Java JDK
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
@@ -188,7 +189,7 @@ jobs:
           path: artifacts/Android
 
       - name: Publish to GitHub Releases
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/Windows_x64/*
