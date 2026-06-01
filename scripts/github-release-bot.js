@@ -77,9 +77,6 @@ const assetSearchPaths = {
     'android/app/build/outputs/apk/debug/app-debug.apk',
     'android/app/build/outputs/apk/release/app-release-unsigned.apk',
     'android/app/build/outputs/apk/release/app-release.apk'
-  ],
-  'SovereignNote-PWA-SingleFile.html': [
-    'dist/index.html'
   ]
 };
 

@@ -122,6 +122,7 @@ jobs:
       - name: ⚡ 构建 Android APK 原生包 (Debug/Release)
         run: |
           cd android
+          chmod +x gradlew
           ./gradlew assembleRelease
           ./gradlew assembleDebug
 
