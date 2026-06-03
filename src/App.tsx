@@ -29,6 +29,14 @@ export default function App() {
     return saved ? parseInt(saved, 10) : 2; // default: 2 (Normal)
   });
 
+  const [themeMode, setThemeMode] = useState<'day' | 'night'>(() => {
+    return (localStorage.getItem('sovereign_theme') as 'day' | 'night') || 'night';
+  });
+
+  const [deviceProfile, setDeviceProfile] = useState<string>(() => {
+    return localStorage.getItem('sovereign_device_profile') || 'win-pc';
+  });
+
   const [customEvents, setCustomEvents] = useState<CalendarEvent[]>(() => {
     const saved = localStorage.getItem('sovereign_events');
     return saved ? JSON.parse(saved) : [
@@ -147,6 +155,53 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('sovereign_font_size', String(fontSizeLevel));
   }, [fontSizeLevel]);
+
+  useEffect(() => {
+    if (themeMode === 'day') {
+      document.body.classList.add('theme-light');
+    } else {
+      document.body.classList.remove('theme-light');
+    }
+    localStorage.setItem('sovereign_theme', themeMode);
+  }, [themeMode]);
+
+  useEffect(() => {
+    // Remove all old profile classes first
+    document.body.classList.remove('profile-win', 'profile-tablet', 'profile-android13', 'profile-android5');
+    
+    if (deviceProfile === 'win-pc') {
+      document.body.classList.add('profile-win');
+    } else if (deviceProfile === 'win-tablet') {
+      document.body.classList.add('profile-win', 'profile-tablet');
+    } else if (deviceProfile === 'android-13') {
+      document.body.classList.add('profile-tablet', 'profile-android13');
+    } else if (deviceProfile === 'sharp-r2') {
+      document.body.classList.add('profile-tablet', 'profile-android5');
+    } else if (deviceProfile === 'nokia-n1') {
+      document.body.classList.add('profile-tablet', 'profile-android5');
+    }
+    localStorage.setItem('sovereign_device_profile', deviceProfile);
+  }, [deviceProfile]);
+
+  const applyDevicePreset = (profile: string) => {
+    setDeviceProfile(profile);
+    if (profile === 'win-pc') {
+      setUiScale(1.0);
+      setFontSizeLevel(2);
+    } else if (profile === 'win-tablet') {
+      setUiScale(1.2);
+      setFontSizeLevel(3);
+    } else if (profile === 'android-13') {
+      setUiScale(1.0);
+      setFontSizeLevel(2);
+    } else if (profile === 'sharp-r2') {
+      setUiScale(0.9);
+      setFontSizeLevel(1);
+    } else if (profile === 'nokia-n1') {
+      setUiScale(1.3);
+      setFontSizeLevel(4);
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem('sovereign_events', JSON.stringify(customEvents));
@@ -366,6 +421,12 @@ export default function App() {
         handleExportDatabase={handleExportDatabase}
         handleImportDatabase={handleImportDatabase}
         handleImportNotesFromFiles={handleImportNotesFromFiles}
+        themeMode={themeMode}
+        setThemeMode={setThemeMode}
+        deviceProfile={deviceProfile}
+        applyDevicePreset={applyDevicePreset}
+        uiScale={uiScale}
+        setUiScale={setUiScale}
       />
 
       <MainArea 
@@ -392,6 +453,10 @@ export default function App() {
         handleImportDatabase={handleImportDatabase}
         isPartitionOpen={isPartitionOpen}
         setIsPartitionOpen={setIsPartitionOpen}
+        themeMode={themeMode}
+        setThemeMode={setThemeMode}
+        deviceProfile={deviceProfile}
+        applyDevicePreset={applyDevicePreset}
       />
     </div>
   );

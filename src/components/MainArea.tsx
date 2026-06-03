@@ -34,6 +34,10 @@ interface MainAreaProps {
   handleImportDatabase: (jsonData: string) => void;
   isPartitionOpen: boolean;
   setIsPartitionOpen: (open: boolean) => void;
+  themeMode: 'day' | 'night';
+  setThemeMode: (mode: 'day' | 'night') => void;
+  deviceProfile: string;
+  applyDevicePreset: (profile: string) => void;
 }
 
 export default function MainArea({
@@ -60,6 +64,10 @@ export default function MainArea({
   handleImportDatabase,
   isPartitionOpen,
   setIsPartitionOpen,
+  themeMode,
+  setThemeMode,
+  deviceProfile,
+  applyDevicePreset,
 }: MainAreaProps) {
   const [editorMode, setEditorMode] = useState<'edit' | 'preview' | 'split'>('split');
   const [isToolbarOpen, setIsToolbarOpen] = useState(true);
@@ -477,72 +485,139 @@ export default function MainArea({
         </div>
         <div className="p-8 max-w-2xl space-y-8 pb-16">
           
-          {/* FONT WIDGET - ACCESSIBILITY */}
+          {/* MULTI_DEVICE ADAPTIVE & ENV SETTINGS */}
           <div className="space-y-4">
             <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-sky-400" /> 无障碍显示与大字极速调节
+              <Sliders className="w-4 h-4 text-emerald-400" /> 多端真机环境与自适应无障碍管理
             </h2>
-            <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-sm">全局字号调节 (当前等级 {fontSizeLevel}/5)</h3>
-                  <p className="text-xs text-slate-500 mt-1">支持1至5级无障碍大小字体，让中老年群和多视疲劳用户轻而易举体验。5级大字特别友好。</p>
+            <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-6">
+              
+              {/* Theme Selector Section */}
+              <div className="space-y-2">
+                <h3 className="font-semibold text-sm">🔆 系统视觉主题模式</h3>
+                <p className="text-xs text-slate-500">双轨高对比度防蓝光视觉主题，完美保护低视力年龄群众。夏普R2等液晶屏可显著提升日间可读性。</p>
+                <div className="grid grid-cols-2 gap-3 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setThemeMode('day')}
+                    className={`py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                      themeMode === 'day'
+                        ? 'bg-amber-500 text-slate-950 shadow font-extrabold'
+                        : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-300'
+                    }`}
+                  >
+                    ☀️ 极速舒适：日间浅色模式
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setThemeMode('night')}
+                    className={`py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                      themeMode === 'night'
+                        ? 'bg-indigo-600 text-slate-100 shadow font-extrabold border border-indigo-500/20'
+                        : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    🌙 昏暗护眼：夜间深色模式
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-4 bg-slate-950/40 p-4 rounded-lg">
-                <button 
-                  onClick={() => setFontSizeLevel(Math.max(1, fontSizeLevel - 1))}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-705 border border-slate-700 text-xs font-bold rounded-lg text-slate-300"
-                >
-                  A- 缩小
-                </button>
-                <div className="flex-1 grid grid-cols-5 gap-1 text-center">
-                  {[1, 2, 3, 4, 5].map((lvl) => (
-                    <button 
-                      key={lvl}
-                      onClick={() => setFontSizeLevel(lvl)}
-                      className={`py-1 text-xs font-black rounded-md ${
-                        fontSizeLevel === lvl 
-                          ? 'bg-indigo-600 text-white shadow' 
-                          : 'bg-slate-900 text-slate-500 hover:bg-slate-800'
+
+              {/* Hardware / Preset Profiles */}
+              <div className="space-y-2 pt-4 border-t border-slate-800">
+                <h3 className="font-semibold text-sm">🔌 终端真机兼容环境预设</h3>
+                <p className="text-xs text-slate-500">
+                  一键配置当前设备的视口大小、字号适配、WebView 内核抗锯齿及点击响应防抖等底层兼容策略。
+                </p>
+                <div className="grid grid-cols-5 gap-2 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
+                  {[
+                    { id: 'win-pc', label: '💻 Win 电脑', desc: '1.0x UI / 中字' },
+                    { id: 'win-tablet', label: '📐 Win 平板', desc: '1.2x UI / 较大' },
+                    { id: 'android-13', label: '📱 安卓13手机', desc: '1.0x UI / 中字' },
+                    { id: 'sharp-r2', label: '💎 夏普 R2', desc: '0.9x UI / 12px' },
+                    { id: 'nokia-n1', label: '🎯 诺基亚 N1', desc: '1.3x UI / 大字' }
+                  ].map((prof) => (
+                    <button
+                      key={prof.id}
+                      type="button"
+                      onClick={() => applyDevicePreset(prof.id)}
+                      className={`p-2.5 rounded-lg text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1.5 ${
+                        deviceProfile === prof.id
+                          ? 'bg-emerald-600 text-white shadow font-extrabold border border-emerald-500/30'
+                          : 'bg-slate-900 border border-slate-850 text-slate-400 hover:text-slate-300'
                       }`}
                     >
-                      {lvl === 5 ? "5级大字" : `${lvl}级`}
+                      <span className="text-center truncate w-full">{prof.label}</span>
+                      <span className="text-[9px] opacity-70 font-normal">{prof.desc}</span>
                     </button>
                   ))}
                 </div>
-                <button 
-                  onClick={() => setFontSizeLevel(Math.min(5, fontSizeLevel + 1))}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-lg text-white"
-                >
-                  A+ 放大
-                </button>
               </div>
 
-              {setUiScale && (
-                <div className="mt-6 pt-4 border-t border-slate-800">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="font-semibold text-sm">全局 UI 界面缩放 (当前: {uiScale.toFixed(2)}x)</h3>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <input 
-                      type="range"
-                      min="0.5"
-                      max="2.0"
-                      step="0.05"
-                      value={uiScale}
-                      onChange={(e) => setUiScale(parseFloat(e.target.value))}
-                      className="flex-1 accent-indigo-500"
-                    />
-                    <button 
-                      onClick={() => setUiScale(1.0)}
-                      className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-xs rounded border border-slate-700"
-                    >
-                      重置
-                    </button>
+              {/* Sizing Detail Slider */}
+              <div className="space-y-4 pt-4 border-t border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-sm">全局字号调节 (当前等级 {fontSizeLevel}/5)</h3>
+                    <p className="text-xs text-slate-500 mt-1">支持1至5级无障碍大小字体，让多视疲劳用户轻而易举体验。5级大字特别友好。</p>
                   </div>
                 </div>
-              )}
+                <div className="flex items-center gap-4 bg-slate-950/40 p-4 rounded-lg">
+                  <button 
+                    onClick={() => setFontSizeLevel(Math.max(1, fontSizeLevel - 1))}
+                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-705 border border-slate-700 text-xs font-bold rounded-lg text-slate-300"
+                  >
+                    A- 缩小
+                  </button>
+                  <div className="flex-1 grid grid-cols-5 gap-1 text-center">
+                    {[1, 2, 3, 4, 5].map((lvl) => (
+                      <button 
+                        key={lvl}
+                        onClick={() => setFontSizeLevel(lvl)}
+                        className={`py-1 text-xs font-black rounded-md ${
+                          fontSizeLevel === lvl 
+                            ? 'bg-indigo-600 text-white shadow' 
+                            : 'bg-slate-900 text-slate-500 hover:bg-slate-800'
+                        }`}
+                      >
+                        {lvl === 5 ? "5级大字" : `${lvl}级`}
+                      </button>
+                    ))}
+                  </div>
+                  <button 
+                    onClick={() => setFontSizeLevel(Math.min(5, fontSizeLevel + 1))}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-lg text-white"
+                  >
+                    A+ 放大
+                  </button>
+                </div>
+
+                {setUiScale && (
+                  <div className="pt-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-semibold text-xs text-slate-400">细分界面微观 UI 调节比例</h4>
+                      <span className="text-xs font-bold font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">{uiScale.toFixed(2)}x</span>
+                    </div>
+                    <div className="flex items-center gap-4 bg-slate-950/40 p-4 rounded-lg">
+                      <input 
+                        type="range"
+                        min="0.5"
+                        max="2.0"
+                        step="0.05"
+                        value={uiScale}
+                        onChange={(e) => setUiScale(parseFloat(e.target.value))}
+                        className="flex-1 accent-indigo-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                      />
+                      <button 
+                        onClick={() => setUiScale(1.0)}
+                        className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg border border-slate-700 font-bold"
+                      >
+                        默认 1.0x
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
             </div>
           </div>
 

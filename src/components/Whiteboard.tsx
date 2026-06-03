@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-export type StrokeType = 'pen' | 'rect' | 'circle' | 'eraser';
+export type StrokeType = 'pen' | 'rect' | 'circle' | 'eraser' | 'line';
 
 export interface StrokePath {
   id: string;
@@ -78,6 +78,13 @@ export default function Whiteboard({ paths, onChange }: WhiteboardProps) {
           ctx.ellipse(stroke.x + rx, stroke.y + ry, Math.abs(rx), Math.abs(ry), 0, 0, 2 * Math.PI);
           ctx.stroke();
         }
+      } else if (stroke.type === 'line') {
+        if (stroke.x !== undefined && stroke.y !== undefined && stroke.width !== undefined && stroke.height !== undefined) {
+          ctx.beginPath();
+          ctx.moveTo(stroke.x, stroke.y);
+          ctx.lineTo(stroke.x + stroke.width, stroke.y + stroke.height);
+          ctx.stroke();
+        }
       }
     };
 
@@ -120,8 +127,8 @@ export default function Whiteboard({ paths, onChange }: WhiteboardProps) {
       color,
       lineWidth,
       points: (tool === 'pen' || tool === 'eraser') ? [{ x, y }] : undefined,
-      x: (tool === 'rect' || tool === 'circle') ? x : undefined,
-      y: (tool === 'rect' || tool === 'circle') ? y : undefined,
+      x: (tool === 'rect' || tool === 'circle' || tool === 'line') ? x : undefined,
+      y: (tool === 'rect' || tool === 'circle' || tool === 'line') ? y : undefined,
       width: 0,
       height: 0
     });
@@ -137,7 +144,7 @@ export default function Whiteboard({ paths, onChange }: WhiteboardProps) {
         ...currentStroke,
         points: [...(currentStroke.points || []), { x, y }]
       });
-    } else if (tool === 'rect' || tool === 'circle') {
+    } else if (tool === 'rect' || tool === 'circle' || tool === 'line') {
       setCurrentStroke({
         ...currentStroke,
         width: x - (currentStroke.x || 0),
@@ -169,14 +176,14 @@ export default function Whiteboard({ paths, onChange }: WhiteboardProps) {
   return (
     <div className="flex flex-col h-full w-full">
       <div className="flex items-center justify-between bg-slate-900 border-b border-slate-800 p-2 shrink-0">
-        <div className="flex gap-2">
-          {['pen', 'rect', 'circle', 'eraser'].map(t => (
+        <div className="flex flex-wrap gap-1 md:gap-2">
+          {['pen', 'line', 'rect', 'circle', 'eraser'].map(t => (
             <button
               key={t}
               onClick={() => setTool(t as StrokeType)}
               className={`px-3 py-1 rounded text-xs font-bold transition-colors ${tool === t ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
             >
-              {t === 'pen' ? '✏️ 画笔' : t === 'eraser' ? '🧽 橡皮' : t === 'rect' ? '⬛️ 矩形' : '⭕️ 圆形'}
+              {t === 'pen' ? '✏️ 画笔' : t === 'line' ? '📏 直线' : t === 'eraser' ? '🧽 橡皮' : t === 'rect' ? '⬛️ 矩形' : '⭕️ 圆形'}
             </button>
           ))}
           {tool !== 'eraser' && (

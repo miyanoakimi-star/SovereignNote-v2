@@ -70,3 +70,88 @@ body {
   width: calc(100% / var(--global-ui-scale, 1.0));
   height: calc(100% / var(--global-ui-scale, 1.0));
 }
+
+/* DAYTIME (LIGHT) MODE CSS OVERRIDES */
+body.theme-light {
+  background-color: #f8fafc !important; /* slate-50 */
+  color: #0f172a !important; /* slate-900 */
+}
+
+body.theme-light .bg-slate-900 {
+  background-color: #f8fafc !important;
+}
+body.theme-light .bg-slate-950,
+body.theme-light .bg-slate-950\/40,
+body.theme-light .bg-slate-950\/90 {
+  background-color: #f1f5f9 !important;
+}
+body.theme-light .bg-slate-800,
+body.theme-light .bg-slate-800\/80,
+body.theme-light .bg-slate-800\/30,
+body.theme-light .bg-slate-800\/50 {
+  background-color: #e2e8f0 !important;
+}
+body.theme-light .bg-slate-950\/30,
+body.theme-light .bg-slate-950\/10,
+body.theme-light .bg-slate-950\/20 {
+  background-color: #cbd5e1 !important;
+}
+
+body.theme-light .border-slate-800,
+body.theme-light .border-slate-850,
+body.theme-light .border-slate-705,
+body.theme-light .border-slate-750,
+body.theme-light .border-slate-700 {
+  border-color: #cbd5e1 !important;
+}
+
+body.theme-light .text-slate-100,
+body.theme-light .text-slate-200,
+body.theme-light .text-slate-300,
+body.theme-light h1,
+body.theme-light h2,
+body.theme-light h3,
+body.theme-light h4,
+body.theme-light h5,
+body.theme-light h6 {
+  color: #0f172a !important;
+}
+
+body.theme-light .text-slate-400,
+body.theme-light .text-slate-500 {
+  color: #475569 !important;
+}
+
+body.theme-light .text-indigo-400 {
+  color: #4f46e5 !important;
+}
+body.theme-light .text-emerald-400 {
+  color: #10b981 !important;
+}
+
+body.theme-light textarea,
+body.theme-light input {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #94a3b8 !important;
+}
+
+body.theme-light .prose {
+  color: #1e293b !important;
+}
+body.theme-light .prose h1,
+body.theme-light .prose h2,
+body.theme-light .prose h3,
+body.theme-light .prose h4,
+body.theme-light .prose strong {
+  color: #0f172a !important;
+}
+body.theme-light .prose code {
+  color: #dc2626 !important;
+  background-color: #f1f5f9 !important;
+}
+body.theme-light .prose pre {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  border: 1px solid #e2e8f0;
+}
