@@ -64,7 +64,8 @@ export default function PartitionBar({
   const [selectedNoteIds, setSelectedNoteIds] = useState<Record<string, boolean>>({});
 
   const getDynamicFontSizeStyle = (level: number, baseSize: number) => {
-    const factor = level === 1 ? 0.85 : level === 2 ? 1.0 : level === 3 ? 1.15 : level === 4 ? 1.3 : 1.45;
+    const factors = [0.85, 1.0, 1.15, 1.3, 1.45];
+    const factor = factors[level - 1] || 1.0;
     return { fontSize: `${baseSize * factor}px`, lineHeight: `${baseSize * factor * 1.35}px` };
   };
 
