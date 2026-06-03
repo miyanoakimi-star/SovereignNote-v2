@@ -8,12 +8,13 @@ export default defineConfig({
     react(),
     legacy({
       targets: ['chrome >= 49', 'android >= 5', 'ie >= 11'],
+      modernTargets: ['chrome >= 60', 'android >= 5'],
       additionalLegacyPolyfills: ['regenerator-runtime/runtime'],
-      modernPolyfills: true,
+      modernPolyfills: false,
     })
   ],
   build: {
-    target: 'es2015',
+    target: ['chrome79', 'es2015'],
     cssTarget: 'chrome49',
     cssCodeSplit: true,
   },
