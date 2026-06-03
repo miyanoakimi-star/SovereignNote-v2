@@ -54,6 +54,9 @@ jobs:
     name: 🪟 编译 Windows 原生桌面端
     needs: build-frontend
     runs-on: windows-2022
+    env:
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+      CARGO_TERM_COLOR: always
     strategy:
       fail-fast: false
       matrix:
@@ -69,19 +72,23 @@ jobs:
           path: dist
 
       - name: 🛠️ 配置并对齐 Rust 稳定版交叉编译工具链
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ env.RUST_VERSION }}
+          toolchain: 1.95.0
           targets: ${{ matrix.target }}
 
-      - name: 🔄 强力洗牌并刷新 Cargo 稀疏索引
+      - name: 🧼 物理清理旧依赖残余
         shell: pwsh
         run: |
-          $env:CARGO_REGISTRIES_CRATES_IO_PROTOCOL = "sparse"
           cd core-backend
           if (Test-Path "Cargo.lock") { Remove-Item "Cargo.lock" -Force }
-          cargo clean
-          cargo fetch
+          if (Test-Path "target") { Remove-Item "target" -Recurse -Force -ErrorAction SilentlyContinue }
+
+      - name: 🔄 强力拉取纯净依赖
+        shell: pwsh
+        run: |
+          cd core-backend
+          cargo fetch --target ${{ matrix.target }}
 
       - name: ⚡ 执行 Windows 二进制单文件硬核构筑
         shell: pwsh
