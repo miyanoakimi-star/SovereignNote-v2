@@ -129,6 +129,11 @@ jobs:
         with:
           validate-wrappers: false
 
+      - name: 🎨 自动修复并重建 Android 损坏的资源图片 (AAPT2 兼容)
+        run: |
+          sudo apt-get update && sudo apt-get install -y imagemagick
+          find android/app/src/main/res/ -name "*.png" -exec convert {} -background none {} \;
+
       - name: ⚡ 构建 Android APK 原生包 (Debug/Release)
         run: |
           cd android
