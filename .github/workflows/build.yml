@@ -55,6 +55,7 @@ jobs:
     needs: build-frontend
     runs-on: windows-2022
     strategy:
+      fail-fast: false
       matrix:
         target: [x86_64-pc-windows-msvc, i686-pc-windows-msvc] # 双架构并行编译
     steps:
@@ -73,15 +74,27 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ matrix.target }}
 
+      - name: 🔄 Cargo Index Pre-fetch
+        shell: pwsh
+        run: |
+          cd core-backend
+          cargo fetch
+
       - name: ⚡ 执行 Windows 二进制单文件硬核构筑
         shell: pwsh
         run: |
           cd core-backend
           cargo build --release --target ${{ matrix.target }} --bin sovereign-core-exe
-          if ("${{ matrix.target }}" -eq "x86_64-pc-windows-msvc") {
-            Copy-Item target/${{ matrix.target }}/release/sovereign-core-exe.exe target/${{ matrix.target }}/release/SovereignNote_Windows_x64.exe
+          $SourcePath = "target/${{ matrix.target }}/release/sovereign-core-exe.exe"
+          if (Test-Path $SourcePath) {
+            if ("${{ matrix.target }}" -like "*x86_64*") {
+              Copy-Item $SourcePath target/${{ matrix.target }}/release/SovereignNote_Windows_x64.exe -Force
+            } else {
+              Copy-Item $SourcePath target/${{ matrix.target }}/release/SovereignNote_Windows_ia32.exe -Force
+            }
           } else {
-            Copy-Item target/${{ matrix.target }}/release/sovereign-core-exe.exe target/${{ matrix.target }}/release/SovereignNote_Windows_ia32.exe
+            Write-Error "错误：编译未生成有效产物，请检查上游 Cargo 编译日志！"
+            exit 1
           }
 
       - name: 💾 暂存 Windows 编译程序
