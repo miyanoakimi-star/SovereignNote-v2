@@ -132,8 +132,10 @@ jobs:
       - name: ⚡ 构建 Android APK 原生包 (Debug/Release)
         run: |
           cd android
-          gradle assembleRelease
-          gradle assembleDebug
+          gradle wrapper --gradle-version 8.14.3
+          chmod +x gradlew
+          ./gradlew assembleRelease
+          ./gradlew assembleDebug
 
       - name: 💾 暂存 Android 安装包
         uses: actions/upload-artifact@v4
