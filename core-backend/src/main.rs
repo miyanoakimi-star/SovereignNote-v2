@@ -9,6 +9,7 @@ use mime_guess::from_path;
 
 mod db;
 mod api;
+mod ftp;
 
 #[derive(RustEmbed)]
 #[folder = "../dist"] // 指向前端 Vite 构建产物

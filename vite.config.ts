@@ -6,7 +6,8 @@ export default defineConfig({
   plugins: [
     react(),
     legacy({
-      targets: ['defaults', 'android >= 5']
+      targets: ['chrome >= 60', 'android >= 8'],
+      additionalLegacyPolyfills: ['regenerator-runtime/runtime']
     })
   ],
   server: {

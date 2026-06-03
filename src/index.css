@@ -52,4 +52,10 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background-color: #020617; /* slate-950 */
   color: #e2e8f0; /* slate-200 */
+  
+  /* UI Scale support */
+  transform: scale(var(--global-ui-scale, 1.0));
+  transform-origin: top left;
+  width: calc(100% / var(--global-ui-scale, 1.0));
+  height: calc(100% / var(--global-ui-scale, 1.0));
 }

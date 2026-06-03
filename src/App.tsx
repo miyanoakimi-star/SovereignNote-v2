@@ -37,6 +37,11 @@ export default function App() {
     ];
   });
 
+  const [uiScale, setUiScale] = useState<number>(() => {
+    const saved = localStorage.getItem('sovereign_ui_scale');
+    return saved ? parseFloat(saved) : 1.0;
+  });
+
   const [webdavConfig, setWebdavConfig] = useState(() => {
     const saved = localStorage.getItem('sovereign_webdav');
     return saved ? JSON.parse(saved) : {
@@ -48,6 +53,17 @@ export default function App() {
     };
   });
 
+  const [ftpConfig, setFtpConfig] = useState(() => {
+    const saved = localStorage.getItem('sovereign_ftp');
+    return saved ? JSON.parse(saved) : {
+      host: '192.168.1.100:21',
+      user: 'admin',
+      pass: '',
+      path: '/Backup',
+      secure: false
+    };
+  });
+
   const [customFestivals, setCustomFestivals] = useState<Record<string, string>>(() => {
     const saved = localStorage.getItem('sovereign_custom_festivals');
     return saved ? JSON.parse(saved) : {};
@@ -55,6 +71,19 @@ export default function App() {
 
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleTouch = () => {
+      document.body.classList.add('profile-tablet');
+    };
+    window.addEventListener('touchstart', handleTouch, { once: true });
+    return () => window.removeEventListener('touchstart', handleTouch);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--global-ui-scale', String(uiScale));
+    localStorage.setItem('sovereign_ui_scale', String(uiScale));
+  }, [uiScale]);
 
   useEffect(() => {
     const cached = getLocalNotes();
@@ -300,6 +329,10 @@ export default function App() {
         setCustomEvents={setCustomEvents}
         webdavConfig={webdavConfig}
         setWebdavConfig={setWebdavConfig}
+        ftpConfig={ftpConfig}
+        setFtpConfig={setFtpConfig}
+        uiScale={uiScale}
+        setUiScale={setUiScale}
         customFestivals={customFestivals}
         setCustomFestivals={setCustomFestivals}
         notes={notes}

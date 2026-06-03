@@ -20,6 +20,10 @@ interface MainAreaProps {
   setCustomEvents: (events: CalendarEvent[]) => void;
   webdavConfig: any;
   setWebdavConfig: any;
+  ftpConfig?: any;
+  setFtpConfig?: any;
+  uiScale?: number;
+  setUiScale?: (scale: number) => void;
   customFestivals: Record<string, string>;
   setCustomFestivals: (festivals: Record<string, string>) => void;
   notes: Note[];
@@ -42,6 +46,10 @@ export default function MainArea({
   setCustomEvents,
   webdavConfig,
   setWebdavConfig,
+  ftpConfig,
+  setFtpConfig,
+  uiScale = 1.0,
+  setUiScale,
   customFestivals,
   setCustomFestivals,
   notes,
@@ -510,6 +518,31 @@ export default function MainArea({
                   A+ 放大
                 </button>
               </div>
+
+              {setUiScale && (
+                <div className="mt-6 pt-4 border-t border-slate-800">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold text-sm">全局 UI 界面缩放 (当前: {uiScale.toFixed(2)}x)</h3>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <input 
+                      type="range"
+                      min="0.5"
+                      max="2.0"
+                      step="0.05"
+                      value={uiScale}
+                      onChange={(e) => setUiScale(parseFloat(e.target.value))}
+                      className="flex-1 accent-indigo-500"
+                    />
+                    <button 
+                      onClick={() => setUiScale(1.0)}
+                      className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-xs rounded border border-slate-700"
+                    >
+                      重置
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -520,12 +553,28 @@ export default function MainArea({
             <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="font-semibold text-sm">局域网 (LAN) 广播合并</h3>
-                  <p className="text-xs text-slate-500 mt-1">自动识别周边同一 Wi-Fi 网络下的节点，并通过 WebRTC 同步 LWW 差异状态</p>
+                  <h3 className="font-semibold text-sm">局域网 (LAN) 同步与广播</h3>
+                  <p className="text-xs text-slate-500 mt-1">自动识别周围设备网络，并通过 P2P/WebRTC 同步 LWW 差异状态</p>
                 </div>
-                <span className="px-2.5 py-1 bg-emerald-600/10 text-emerald-400 border border-emerald-500/15 text-[10px] uppercase font-bold rounded">
-                  测试中 (活跃中)
-                </span>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('/notes/sync/force', { method: 'POST' });
+                        if (res.ok) alert('强制同步触发成功');
+                      } catch {
+                        alert('无法连接到本地核心网络。');
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-lg text-white flex items-center gap-1 shadow-sm"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    强制手动同步
+                  </button>
+                  <span className="px-2.5 py-1.5 bg-emerald-600/10 text-emerald-400 border border-emerald-500/15 text-[10px] uppercase font-bold rounded">
+                    活跃中
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -614,6 +663,83 @@ export default function MainArea({
                 <div className="text-xs text-emerald-400 font-semibold bg-emerald-900/10 p-2.5 rounded border border-emerald-500/15">{backupStatus}</div>
               )}
             </div>
+
+            {/* FTP CUSTOM SERVER INTEGRATION */}
+            {ftpConfig && setFtpConfig && (
+              <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4 mt-4">
+                <div className="flex items-center gap-2">
+                  <Database className="w-4 h-4 text-emerald-400" />
+                  <div>
+                    <h3 className="font-semibold text-sm">私有 FTP / NAS 存储挂载挂载备份</h3>
+                    <p className="text-xs text-slate-500 mt-1">直接挂载到私有 NAS 或旧服务器 (通过 suppftp & tokio-ftp 原生对接)。</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-xs text-slate-400 font-bold">FTP 主机和端口</label>
+                    <input 
+                      className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
+                      value={ftpConfig.host} 
+                      onChange={(e) => setFtpConfig({ ...ftpConfig, host: e.target.value })}
+                      placeholder="192.168.1.100:21" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-slate-400 font-bold">同步目录路径</label>
+                    <input 
+                      className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
+                      value={ftpConfig.path} 
+                      onChange={(e) => setFtpConfig({ ...ftpConfig, path: e.target.value })}
+                      placeholder="/Backup/Notes" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-slate-400 font-bold">FTP 用户名</label>
+                    <input 
+                      className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
+                      value={ftpConfig.user} 
+                      onChange={(e) => setFtpConfig({ ...ftpConfig, user: e.target.value })}
+                      placeholder="admin" 
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-slate-400 font-bold">FTP 密码</label>
+                    <input 
+                      type="password"
+                      className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
+                      value={ftpConfig.pass} 
+                      onChange={(e) => setFtpConfig({ ...ftpConfig, pass: e.target.value })}
+                      placeholder="FTP 安全密码" 
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    onClick={async () => {
+                      setBackupStatus('正在尝试上传 FTP...');
+                      try {
+                        const res = await fetch('/sync/ftp', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(ftpConfig)
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                          setBackupStatus('FTP 增量备份推送成功: ' + data.message);
+                        } else {
+                          setBackupStatus('FTP 错误: ' + (data.error || '上传失败'));
+                        }
+                      } catch (err) {
+                        setBackupStatus('FTP 连接失败: 无法连接本地代理节点');
+                      }
+                    }}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold transition-all text-white border border-emerald-500"
+                  >
+                    🚀 推送本地方案至 FTP 服务器
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* BACKUP & MANUAL TOOLS */}
