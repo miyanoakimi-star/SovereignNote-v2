@@ -1,5 +1,5 @@
-use suppftp::AsyncNativeTlsFtpStream;
-use suppftp::AsyncFtpStream;
+use suppaftp::AsyncNativeTlsFtpStream;
+use suppaftp::AsyncFtpStream;
 use std::io::Cursor;
 use axum::{Json, http::StatusCode};
 use serde::{Deserialize, Serialize};

@@ -671,7 +671,7 @@ export default function MainArea({
                   <Database className="w-4 h-4 text-emerald-400" />
                   <div>
                     <h3 className="font-semibold text-sm">私有 FTP / NAS 存储挂载挂载备份</h3>
-                    <p className="text-xs text-slate-500 mt-1">直接挂载到私有 NAS 或旧服务器 (通过 suppftp & tokio-ftp 原生对接)。</p>
+                    <p className="text-xs text-slate-500 mt-1">直接挂载到私有 NAS 或旧服务器 (通过 suppaftp & tokio-ftp 原生对接)。</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
