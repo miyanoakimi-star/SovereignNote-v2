@@ -15,7 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 # 使用稳定且包含 async 核心支持的版本 (对齐官方 suppaftp 版本)
-suppaftp = { version = "6.0.1", default-features = false, features = ["async-tokio-native-tls"] }
+suppaftp = { version = "6.0.1", default-features = false, features = ["async-native-tls"] }
 axum = "0.7"
 tokio = { version = "1.0", features = ["full"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
