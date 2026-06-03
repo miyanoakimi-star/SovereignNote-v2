@@ -129,30 +129,29 @@ jobs:
         with:
           validate-wrappers: false
 
-      - name: 🧼 暴力重构并净化所有 Android 坏图资产
+      - name: 🧼 暴力重构并净化所有 Android 坏图资产 (绝对路径版)
         run: |
           sudo apt-get update && sudo apt-get install -y imagemagick
           
           echo "=== 1. 在本地生成一张绝对纯净、合规的母版 PNG 图片 ==="
-          # 用 ImageMagick 在内存中凭空造一张 512x512 像素、带透明背景的健康 PNG 
-          convert -size 512x512 xc:transparent -fill "#4F46E5" -draw "circle 256,256 256,40" master_clean.png
+          # 使用 $GITHUB_WORKSPACE 绝对路径确保母版存放位置固定
+          convert -size 512x512 xc:transparent -fill "#4F46E5" -draw "circle 256,256 256,40" "$GITHUB_WORKSPACE/master_clean.png"
           
           echo "=== 2. 强制用健康母版重写所有报错的资源文件 ==="
           # 切换到 Android 资源根目录
           cd android/app/src/main/res/
           
-          # 找出所有名存实亡的 png 文件，直接用母版图片根据它们原有的名字进行强制尺寸缩放覆盖！
+          # 找出所有名存实亡的 png 文件，直接用母版图片进行强行覆盖
           find . -name "*.png" -print | while read img; do
             echo "正在物理重造并格式化: $img"
-            # 将健康的 master_clean.png 自动缩放到目标图片原本该有的尺寸，并强行覆盖它
-            convert ../../../../master_clean.png -resize $(identify -ping -format "%wx%h" "$img" 2>/dev/null || echo "128x128") "$img"
+            # 这里使用绝对路径并保留原始尺寸
+            convert "$GITHUB_WORKSPACE/master_clean.png" -resize $(identify -ping -format "%wx%h" "$img" 2>/dev/null || echo "128x128") "$img"
           done
           
           echo "=== 3. 终极验证 ==="
-          # 随便挑一个之前报错的 mdpi 图标，打印它的信息，确保它现在是真正的 PNG
           identify mipmap-mdpi/ic_launcher.png
           
-          echo "=== 资源全部强制救活，开始构建 Gradle ==="
+          echo "=== 资源全部强力洗牌完毕，准备进行 Gradle 编译 ==="
 
       - name: ⚡ 构建 Android APK 原生包 (Debug/Release)
         run: |
