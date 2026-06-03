@@ -80,6 +80,55 @@ export default function App() {
     return () => window.removeEventListener('touchstart', handleTouch);
   }, []);
 
+  // Window maximized detection to auto-hide custom titlebar in desktop/tablet mode
+  useEffect(() => {
+    const checkMaximized = () => {
+      const isMax = window.outerWidth >= window.screen.availWidth - 15 && 
+                    window.outerHeight >= window.screen.availHeight - 15;
+      if (isMax) {
+        document.body.classList.add('window-maximized');
+      } else {
+        document.body.classList.remove('window-maximized');
+      }
+    };
+    window.addEventListener('resize', checkMaximized);
+    checkMaximized();
+    return () => window.removeEventListener('resize', checkMaximized);
+  }, []);
+
+  // Swipe gesture for sidebar (touch/tablet devices)
+  useEffect(() => {
+    let startX = 0;
+    let startY = 0;
+    
+    const handleTouchStart = (e: TouchEvent) => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+    };
+    
+    const handleTouchEnd = (e: TouchEvent) => {
+      const diffX = e.changedTouches[0].clientX - startX;
+      const diffY = e.changedTouches[0].clientY - startY;
+      
+      // Horizontal swipe: trigger if horizontal swipe is substantial & vertical is relatively minor
+      if (Math.abs(diffX) > 110 && Math.abs(diffY) < 60) {
+        if (diffX > 0) {
+          setIsSidebarOpen(true); // Swipe right -> Open Sidebar
+        } else {
+          setIsSidebarOpen(false); // Swipe left -> Close Sidebar
+        }
+      }
+    };
+    
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    window.addEventListener('touchend', handleTouchEnd, { passive: true });
+    
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, []);
+
   useEffect(() => {
     document.documentElement.style.setProperty('--global-ui-scale', String(uiScale));
     localStorage.setItem('sovereign_ui_scale', String(uiScale));

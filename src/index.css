@@ -26,6 +26,17 @@
     min-height: 46px; /* 触控热区扩容 */
   }
 
+  .profile-tablet input, 
+  .profile-tablet select {
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
+  }
+
+  .window-maximized .custom-titlebar, 
+  .profile-tablet .custom-titlebar {
+    display: none !important;
+  }
+
   .profile-android13 .bottom-safe-area {
     padding-bottom: env(safe-area-inset-bottom, 20px);
   }
