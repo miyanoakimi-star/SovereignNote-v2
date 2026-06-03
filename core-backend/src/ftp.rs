@@ -1,8 +1,6 @@
-use suppaftp::AsyncNativeTlsFtpStream;
 use suppaftp::AsyncFtpStream;
 use std::io::Cursor;
-use axum::{Json, http::StatusCode};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct FtpConfig {
@@ -29,7 +27,7 @@ impl FtpStorageProvider {
         
         let path = format!("{}/sovereign_backup.json", config.path);
         let mut reader = Cursor::new(content);
-        ftp_stream.put(&path, &mut reader).await.map_err(|e| e.to_string())?;
+        ftp_stream.put_file(&path, &mut reader).await.map_err(|e| e.to_string())?;
         let _ = ftp_stream.quit().await;
         Ok(())
     }
