@@ -4,6 +4,7 @@ import {
   Plus, ChevronLeft, Trash2, Folder, FolderOpen, Tag, Download, 
   Upload, Hash, Calendar, Sliders, HardDrive, FileText, CheckCircle2, Rocket 
 } from 'lucide-react';
+import { safeStorage } from '../utils/safeStorage';
 
 interface PartitionBarProps {
   navState: NavState;
@@ -26,12 +27,6 @@ interface PartitionBarProps {
   handleExportDatabase: () => void;
   handleImportDatabase: (jsonData: string) => void;
   handleImportNotesFromFiles: (files: FileList) => void;
-  themeMode: 'day' | 'night';
-  setThemeMode: (mode: 'day' | 'night') => void;
-  deviceProfile: string;
-  applyDevicePreset: (profile: string) => void;
-  uiScale: number;
-  setUiScale: (scale: number) => void;
 }
 
 interface TreeNode {
@@ -62,12 +57,6 @@ export default function PartitionBar({
   handleExportDatabase,
   handleImportDatabase,
   handleImportNotesFromFiles,
-  themeMode,
-  setThemeMode,
-  deviceProfile,
-  applyDevicePreset,
-  uiScale,
-  setUiScale,
 }: PartitionBarProps) {
   const [collapsedPaths, setCollapsedPaths] = useState<Record<string, boolean>>({});
   const [dragActive, setDragActive] = useState<boolean>(false);
@@ -716,110 +705,7 @@ export default function PartitionBar({
             })}
           </div>
 
-          {/* UI Environment Adaptation Manager */}
-          <div className="pt-4 border-t border-slate-800 space-y-4 shrink-0">
-            <h3 className="text-xs font-bold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
-              🖥️ 多端环境与自适应管理
-            </h3>
-            
-            {/* Theme Mode Toggle (☀️ Day / 🌙 Night) */}
-            <div className="bg-slate-950/40 p-2.5 rounded-xl border border-slate-800 space-y-2">
-              <span className="text-[10px] text-slate-400 block font-bold">日间与夜间模式切换</span>
-              <div className="grid grid-cols-2 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setThemeMode('day')}
-                  className={`py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-all ${
-                    themeMode === 'day'
-                      ? 'bg-amber-500 text-slate-950 shadow font-black'
-                      : 'bg-slate-900 text-slate-400 hover:text-slate-300'
-                  }`}
-                >
-                  ☀️ 日间模式
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setThemeMode('night')}
-                  className={`py-1.5 rounded-lg text-xs font-bold flex items-center justify-center gap-1 transition-all ${
-                    themeMode === 'night'
-                      ? 'bg-indigo-600 text-slate-100 shadow font-black border border-indigo-500/20'
-                      : 'bg-slate-900 text-slate-400 hover:text-slate-300'
-                  }`}
-                >
-                  🌙 夜间模式
-                </button>
-              </div>
-            </div>
 
-            {/* Device Profile Selector */}
-            <div className="bg-slate-950/40 p-2.5 rounded-xl border border-slate-800 space-y-2">
-              <span className="text-[10px] text-slate-400 block font-bold">真机预设与环境自适应引擎</span>
-              <div className="grid grid-cols-2 gap-1.5">
-                {[
-                  { id: 'win-pc', label: '💻 Win 电脑' },
-                  { id: 'win-tablet', label: '📐 Win 平板' },
-                  { id: 'android-13', label: '📱 安卓 13 手机' },
-                  { id: 'sharp-r2', label: '💎 夏普 R2' },
-                  { id: 'nokia-n1', label: '🎯 诺基亚 N1' }
-                ].map((prof) => (
-                  <button
-                    key={prof.id}
-                    type="button"
-                    onClick={() => applyDevicePreset(prof.id)}
-                    className={`py-1.5 px-0.5 rounded-lg text-[9px] font-bold transition-all text-center ${
-                      deviceProfile === prof.id
-                        ? 'bg-indigo-600 text-white shadow font-extrabold border border-indigo-400/30'
-                        : 'bg-slate-900 text-slate-400 hover:text-slate-300 hover:bg-slate-850'
-                    }`}
-                  >
-                    {prof.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Custom sizing adjusters */}
-            <div className="bg-slate-950/40 p-2.5 rounded-xl border border-slate-800 space-y-3 font-mono">
-              <div>
-                <div className="flex justify-between items-center text-[10px] font-bold mb-1.5">
-                  <span className="text-slate-400">字号缩放等级</span>
-                  <span className="text-indigo-400 font-extrabold">{fontSizeLevel} 级</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] text-slate-600">小</span>
-                  <input
-                    type="range"
-                    min="1"
-                    max="5"
-                    value={fontSizeLevel}
-                    onChange={(e) => setFontSizeLevel(parseInt(e.target.value, 10))}
-                    className="w-32 accent-indigo-500 h-1 cursor-pointer bg-slate-800 rounded-lg"
-                  />
-                  <span className="text-[9px] text-slate-400">大</span>
-                </div>
-              </div>
-
-              <div className="border-t border-slate-800/60 pt-2">
-                <div className="flex justify-between items-center text-[10px] font-bold mb-1.5">
-                  <span className="text-slate-400">界面 UI 缩放</span>
-                  <span className="text-emerald-400 font-extrabold">{uiScale.toFixed(2)}x</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[9px] text-slate-600">0.5</span>
-                  <input
-                    type="range"
-                    min="0.5"
-                    max="2.0"
-                    step="0.05"
-                    value={uiScale}
-                    onChange={(e) => setUiScale(parseFloat(e.target.value))}
-                    className="w-32 accent-emerald-500 h-1 cursor-pointer bg-slate-800 rounded-lg"
-                  />
-                  <span className="text-[9px] text-slate-400">2.0</span>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
@@ -891,7 +777,7 @@ export default function PartitionBar({
               <input
                 type="text"
                 placeholder="例如: http://192.168.1.100:3000"
-                defaultValue={localStorage.getItem('sovereign_sync_url') || ''}
+                defaultValue={safeStorage.getItem('sovereign_sync_url') || ''}
                 className="flex-1 px-3 py-2 text-xs bg-slate-900 border border-slate-800 text-slate-300 rounded focus:border-indigo-500 outline-none"
                 id="sync-server-input"
               />
@@ -899,10 +785,10 @@ export default function PartitionBar({
                 onClick={() => {
                   const val = (document.getElementById('sync-server-input') as HTMLInputElement).value.trim();
                   if (val) {
-                    localStorage.setItem('sovereign_sync_url', val);
+                    safeStorage.setItem('sovereign_sync_url', val);
                     alert('数据中心同步地址已设定，后续同步将推向此IP源。');
                   } else {
-                    localStorage.removeItem('sovereign_sync_url');
+                    safeStorage.removeItem('sovereign_sync_url');
                     alert('已清除同步IP，恢复仅本体闭合环境与相对路由模式。');
                   }
                 }}

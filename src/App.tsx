@@ -5,6 +5,7 @@ import PartitionBar from './components/PartitionBar';
 import MainArea from './components/MainArea';
 import { getLocalNotes, saveLocalNotes } from './lib/api';
 import { universalExport } from './utils/export';
+import { safeStorage } from './utils/safeStorage';
 
 function generateUUID(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -25,20 +26,20 @@ export default function App() {
   
   // Custom states matching requested requirements
   const [fontSizeLevel, setFontSizeLevel] = useState<number>(() => {
-    const saved = localStorage.getItem('sovereign_font_size');
+    const saved = safeStorage.getItem('sovereign_font_size');
     return saved ? parseInt(saved, 10) : 2; // default: 2 (Normal)
   });
 
   const [themeMode, setThemeMode] = useState<'day' | 'night'>(() => {
-    return (localStorage.getItem('sovereign_theme') as 'day' | 'night') || 'night';
+    return (safeStorage.getItem('sovereign_theme') as 'day' | 'night') || 'night';
   });
 
   const [deviceProfile, setDeviceProfile] = useState<string>(() => {
-    return localStorage.getItem('sovereign_device_profile') || 'win-pc';
+    return safeStorage.getItem('sovereign_device_profile') || 'win-pc';
   });
 
   const [customEvents, setCustomEvents] = useState<CalendarEvent[]>(() => {
-    const saved = localStorage.getItem('sovereign_events');
+    const saved = safeStorage.getItem('sovereign_events');
     return saved ? JSON.parse(saved) : [
       { id: 'event-1', title: '✈️ 飞往东京', date: '2026-05-16', noteId: null },
       { id: 'event-2', title: '🎉 App 发布会', date: '2026-05-10', noteId: null },
@@ -46,12 +47,12 @@ export default function App() {
   });
 
   const [uiScale, setUiScale] = useState<number>(() => {
-    const saved = localStorage.getItem('sovereign_ui_scale');
+    const saved = safeStorage.getItem('sovereign_ui_scale');
     return saved ? parseFloat(saved) : 1.0;
   });
 
   const [webdavConfig, setWebdavConfig] = useState(() => {
-    const saved = localStorage.getItem('sovereign_webdav');
+    const saved = safeStorage.getItem('sovereign_webdav');
     return saved ? JSON.parse(saved) : {
       url: 'https://dav.jianguoyun.com/dav',
       port: '443',
@@ -62,7 +63,7 @@ export default function App() {
   });
 
   const [ftpConfig, setFtpConfig] = useState(() => {
-    const saved = localStorage.getItem('sovereign_ftp');
+    const saved = safeStorage.getItem('sovereign_ftp');
     return saved ? JSON.parse(saved) : {
       host: '192.168.1.100:21',
       user: 'admin',
@@ -73,7 +74,7 @@ export default function App() {
   });
 
   const [customFestivals, setCustomFestivals] = useState<Record<string, string>>(() => {
-    const saved = localStorage.getItem('sovereign_custom_festivals');
+    const saved = safeStorage.getItem('sovereign_custom_festivals');
     return saved ? JSON.parse(saved) : {};
   });
 
@@ -139,7 +140,7 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.style.setProperty('--global-ui-scale', String(uiScale));
-    localStorage.setItem('sovereign_ui_scale', String(uiScale));
+    safeStorage.setItem('sovereign_ui_scale', String(uiScale));
   }, [uiScale]);
 
   useEffect(() => {
@@ -153,7 +154,7 @@ export default function App() {
 
   // Sync settings when modified
   useEffect(() => {
-    localStorage.setItem('sovereign_font_size', String(fontSizeLevel));
+    safeStorage.setItem('sovereign_font_size', String(fontSizeLevel));
   }, [fontSizeLevel]);
 
   useEffect(() => {
@@ -162,7 +163,7 @@ export default function App() {
     } else {
       document.body.classList.remove('theme-light');
     }
-    localStorage.setItem('sovereign_theme', themeMode);
+    safeStorage.setItem('sovereign_theme', themeMode);
   }, [themeMode]);
 
   useEffect(() => {
@@ -180,7 +181,7 @@ export default function App() {
     } else if (deviceProfile === 'nokia-n1') {
       document.body.classList.add('profile-tablet', 'profile-android5');
     }
-    localStorage.setItem('sovereign_device_profile', deviceProfile);
+    safeStorage.setItem('sovereign_device_profile', deviceProfile);
   }, [deviceProfile]);
 
   const applyDevicePreset = (profile: string) => {
@@ -204,15 +205,15 @@ export default function App() {
   };
 
   useEffect(() => {
-    localStorage.setItem('sovereign_events', JSON.stringify(customEvents));
+    safeStorage.setItem('sovereign_events', JSON.stringify(customEvents));
   }, [customEvents]);
 
   useEffect(() => {
-    localStorage.setItem('sovereign_webdav', JSON.stringify(webdavConfig));
+    safeStorage.setItem('sovereign_webdav', JSON.stringify(webdavConfig));
   }, [webdavConfig]);
 
   useEffect(() => {
-    localStorage.setItem('sovereign_custom_festivals', JSON.stringify(customFestivals));
+    safeStorage.setItem('sovereign_custom_festivals', JSON.stringify(customFestivals));
   }, [customFestivals]);
 
   const activeNote = useMemo(() => {
@@ -395,6 +396,14 @@ export default function App() {
         setIsOpen={setIsSidebarOpen}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
+        themeMode={themeMode}
+        setThemeMode={setThemeMode}
+        deviceProfile={deviceProfile}
+        applyDevicePreset={applyDevicePreset}
+        uiScale={uiScale}
+        setUiScale={setUiScale}
+        fontSizeLevel={fontSizeLevel}
+        setFontSizeLevel={setFontSizeLevel}
       />
       
       <PartitionBar 
@@ -421,12 +430,6 @@ export default function App() {
         handleExportDatabase={handleExportDatabase}
         handleImportDatabase={handleImportDatabase}
         handleImportNotesFromFiles={handleImportNotesFromFiles}
-        themeMode={themeMode}
-        setThemeMode={setThemeMode}
-        deviceProfile={deviceProfile}
-        applyDevicePreset={applyDevicePreset}
-        uiScale={uiScale}
-        setUiScale={setUiScale}
       />
 
       <MainArea 

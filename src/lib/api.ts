@@ -1,4 +1,5 @@
 import { Note } from '../types';
+import { safeStorage } from '../utils/safeStorage';
 
 /**
  * 动态获取后台 API 基址。
@@ -6,7 +7,7 @@ import { Note } from '../types';
  * - 对于 Capacitor (移动端) 或需要外挂同步的端点，可通过 localStorage 'sovereign_sync_url' 手动变更
  */
 export function getApiBaseUrl(): string {
-  const customUrl = localStorage.getItem('sovereign_sync_url');
+  const customUrl = safeStorage.getItem('sovereign_sync_url');
   if (customUrl) {
     return customUrl.endsWith('/') ? customUrl.slice(0, -1) + '/api' : customUrl + '/api';
   }
@@ -46,7 +47,7 @@ export function mergeNotesLWW(clientNotes: Note[], serverNotes: Note[]): Note[] 
  */
 export function getLocalNotes(): Note[] {
   try {
-    const data = localStorage.getItem('sovereign_notes');
+    const data = safeStorage.getItem('sovereign_notes');
     return data ? JSON.parse(data) : [];
   } catch (e) {
     console.error('Failed to parse local notes:', e);
@@ -58,7 +59,11 @@ export function getLocalNotes(): Note[] {
  * 写入本地 localStorage
  */
 export function saveLocalNotes(notes: Note[]): void {
-  localStorage.setItem('sovereign_notes', JSON.stringify(notes));
+  try {
+    safeStorage.setItem('sovereign_notes', JSON.stringify(notes));
+  } catch (e) {
+    console.error('Failed to save local notes:', e);
+  }
 }
 
 /**
