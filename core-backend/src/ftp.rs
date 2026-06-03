@@ -1,5 +1,4 @@
 use suppaftp::AsyncFtpStream;
-use std::io::Cursor;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -26,8 +25,8 @@ impl FtpStorageProvider {
         ftp_stream.login(&config.user, &config.pass).await.map_err(|e| e.to_string())?;
         
         let path = format!("{}/sovereign_backup.json", config.path);
-        let mut reader = Cursor::new(content);
-        ftp_stream.put_file(&path, &mut reader).await.map_err(|e| e.to_string())?;
+        let mut slice = &content[..];
+        ftp_stream.put_file(&path, &mut slice).await.map_err(|e| e.to_string())?;
         let _ = ftp_stream.quit().await;
         Ok(())
     }
