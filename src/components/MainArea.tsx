@@ -4,6 +4,7 @@ import { parseMarkdown } from '../utils/markdown';
 import { getLunarInfo } from '../utils/lunar';
 import Whiteboard from './Whiteboard';
 import Mindmap from './Mindmap';
+import { universalExport } from '../utils/export';
 import { 
   Layout, Eye, FileDown, EyeOff, Settings, Calendar as CalendarIcon, 
   Database, ChevronLeft, ChevronRight, X, Server, Sliders, Rocket, Terminal, Check, RefreshCw,
@@ -347,13 +348,9 @@ export default function MainArea({
 
   // Export custom monthly calendar events (schedules) to JSON
   const handleExportSchedules = () => {
-    const blob = new Blob([JSON.stringify(customEvents, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `sovereign_schedules_backup_${new Date().toISOString().slice(0, 10)}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+    const jsonStr = JSON.stringify(customEvents, null, 2);
+    const filename = `sovereign_schedules_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    universalExport(jsonStr, filename, 'application/json');
   };
 
   // Import custom calendar events
@@ -419,13 +416,7 @@ export default function MainArea({
       fileContents = JSON.stringify(activeNote, null, 2);
     }
 
-    const blob = new Blob([fileContents], { type: `${mime};charset=utf-8` });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${activeNote.title.replace(/\s+/g, '_')}.${ext}`;
-    link.click();
-    URL.revokeObjectURL(url);
+    universalExport(fileContents, `${activeNote.title.replace(/\s+/g, '_')}.${ext}`, mime);
     setIsExportMenuOpen(false);
   };
 
@@ -436,13 +427,7 @@ export default function MainArea({
     const activeNotes = notes.filter(n => !n.deleted);
     activeNotes.forEach((n, idx) => {
       setTimeout(() => {
-        const blob = new Blob([n.content], { type: 'text/markdown;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${n.title.replace(/\s+/g, '_')}.md`;
-        link.click();
-        URL.revokeObjectURL(url);
+        universalExport(n.content, `${n.title.replace(/\s+/g, '_')}.md`, 'text/markdown');
       }, idx * 150);
     });
   };
@@ -912,13 +897,8 @@ export default function MainArea({
                 customFestivals: customFestivals
               }
             };
-            const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement("a");
-            link.href = url;
-            link.download = `SovereignNote_${releaseVersion}_offline_release_bundle.json`;
-            link.click();
-            URL.revokeObjectURL(url);
+            const jsonStr = JSON.stringify(bundle, null, 2);
+            universalExport(jsonStr, `SovereignNote_${releaseVersion}_offline_release_bundle.json`, 'application/json');
           }
         }, idx * 600);
       });
@@ -993,13 +973,7 @@ jobs:
         env:
           GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
 `;
-      const blob = new Blob([yamlContent], { type: "text/yaml" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `SovereignNote_build_workflow.yml`;
-      link.click();
-      URL.revokeObjectURL(url);
+      universalExport(yamlContent, `SovereignNote_build_workflow.yml`, 'text/yaml');
     };
 
     return (
