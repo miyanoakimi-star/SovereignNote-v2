@@ -74,7 +74,13 @@ export default function Sidebar({
         <NavItem active={navState === 'tags'} onClick={() => setNavState('tags')} icon={<Tag className="w-4 h-4 text-pink-400" />} label="标签" />
         <NavItem active={navState === 'calendar'} onClick={() => setNavState('calendar')} icon={<Calendar className="w-4 h-4 text-emerald-400" />} label="日历" />
         
-        {/* Environment Adaptability Panel (Hung on the blue line zone!) */}
+        {/* 🛠️ 小工具 Section */}
+        <div className="pt-3 pb-1 px-3">
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">🛠️ 小工具</span>
+        </div>
+        <NavItem active={navState === 'releases'} onClick={() => setNavState('releases')} icon={<Rocket className="w-4 h-4 text-amber-400 animate-pulse" />} label="版本发布 (Releases)" />
+
+        {/* 🖥️ 多端环境与自适应 (Moved to here: below Tools and above Settings) */}
         <div className="my-2 px-1">
           <div className="bg-slate-900/50 p-2.5 rounded-xl border border-slate-800/80 space-y-2.5">
             <h3 className="text-[10px] font-bold text-emerald-400 flex items-center gap-1 uppercase tracking-wider">
@@ -174,8 +180,6 @@ export default function Sidebar({
             </div>
           </div>
         </div>
-
-        <NavItem active={navState === 'releases'} onClick={() => setNavState('releases')} icon={<Rocket className="w-4 h-4 text-amber-400 animate-pulse" />} label="版本发布 (Releases)" />
       </nav>
 
       <div className="p-2 border-t border-slate-800 shrink-0">

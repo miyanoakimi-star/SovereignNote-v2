@@ -3,7 +3,7 @@ import { NavState, Note, CalendarEvent } from './types';
 import Sidebar from './components/Sidebar';
 import PartitionBar from './components/PartitionBar';
 import MainArea from './components/MainArea';
-import { getLocalNotes, saveLocalNotes } from './lib/api';
+import { getLocalNotes, saveLocalNotes, syncWithBackend } from './lib/api';
 import { universalExport } from './utils/export';
 import { safeStorage } from './utils/safeStorage';
 
@@ -219,6 +219,25 @@ export default function App() {
   useEffect(() => {
     safeStorage.setItem('sovereign_custom_festivals', JSON.stringify(customFestivals));
   }, [customFestivals]);
+
+  // 自动且具有防抖功能地将前台笔记同步至 Rust 本地 SQLite 数据库 (实现 LWW 融合)
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      try {
+        const res = await syncWithBackend();
+        if (res.success) {
+          const currentStr = JSON.stringify(notes);
+          const syncedStr = JSON.stringify(res.notes);
+          if (currentStr !== syncedStr) {
+            setNotes(res.notes);
+          }
+        }
+      } catch (e) {
+        console.warn('Silent local sync to Rust backend failed:', e);
+      }
+    }, 1500); // 防抖 1.5 秒，在用户停止输入后触发
+    return () => clearTimeout(timer);
+  }, [notes]);
 
   const activeNote = useMemo(() => {
     return notes.find(n => n.id === activeNoteId) || null;
@@ -453,6 +472,7 @@ export default function App() {
         customFestivals={customFestivals}
         setCustomFestivals={setCustomFestivals}
         notes={notes}
+        setNotes={setNotes}
         handleCreateNote={handleCreateNote}
         setActiveNoteId={setActiveNoteId}
         setNavState={setNavState}

@@ -28,20 +28,49 @@ export default function Whiteboard({ paths, onChange }: WhiteboardProps) {
   const lineWidth = 3;
   const [currentStroke, setCurrentStroke] = useState<StrokePath | null>(null);
 
-  // Resize canvas to match container dynamically
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+
+  // We maintain localPaths to react instantly to user drawing, as well as canvasHistory and a pointer!
+  const [localPaths, setLocalPaths] = useState<StrokePath[]>([]);
+  const [canvasHistory, setCanvasHistory] = useState<StrokePath[][]>([]);
+  const [historyPointer, setHistoryPointer] = useState<number>(-1);
+
+  // Sync core paths prop to local state/history when the active note changes or gets loaded from parent
   useEffect(() => {
-    const handleResize = () => {
-      if (containerRef.current && canvasRef.current) {
-        // Debounced resize to avoid flickering
-        canvasRef.current.width = containerRef.current.clientWidth;
-        canvasRef.current.height = containerRef.current.clientHeight;
-        redraw();
+    const pathsJson = JSON.stringify(paths);
+    const localJson = JSON.stringify(localPaths);
+    if (pathsJson !== localJson) {
+      setLocalPaths(paths);
+      setCanvasHistory([paths]);
+      setHistoryPointer(0);
+    }
+  }, [paths]);
+
+  // Resize canvas to match container dynamically using ResizeObserver
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const resizeObserver = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        setDimensions({
+          width: Math.floor(entry.contentRect.width),
+          height: Math.floor(entry.contentRect.height)
+        });
       }
-    };
-    window.addEventListener('resize', handleResize);
-    setTimeout(handleResize, 50); // initial sizing
-    return () => window.removeEventListener('resize', handleResize);
+    });
+    resizeObserver.observe(containerRef.current);
+    return () => resizeObserver.disconnect();
   }, []);
+
+  // Update canvas size and redraw when dimensions, localPaths, or current stroke change
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas && dimensions.width > 0 && dimensions.height > 0) {
+      canvas.width = dimensions.width;
+      canvas.height = dimensions.height;
+      redraw();
+    }
+  }, [dimensions, localPaths, currentStroke]);
 
   // Redraw all strokes
   const redraw = () => {
@@ -88,31 +117,41 @@ export default function Whiteboard({ paths, onChange }: WhiteboardProps) {
       }
     };
 
-    paths.forEach(drawPath);
+    localPaths.forEach(drawPath);
     if (currentStroke) drawPath(currentStroke);
   };
 
   useEffect(() => {
     redraw();
-  }, [paths, currentStroke]);
+  }, [localPaths, currentStroke]);
 
   const getCoords = (e: React.MouseEvent | React.TouchEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    let clientX, clientY;
+    let clientX = 0;
+    let clientY = 0;
     
     if ('touches' in e) {
-      clientX = e.touches[0].clientX;
-      clientY = e.touches[0].clientY;
+      if (e.touches && e.touches.length > 0) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      } else if (e.changedTouches && e.changedTouches.length > 0) {
+        clientX = e.changedTouches[0].clientX;
+        clientY = e.changedTouches[0].clientY;
+      }
     } else {
       clientX = (e as React.MouseEvent).clientX;
       clientY = (e as React.MouseEvent).clientY;
     }
     
+    // Scale coordinates to solve any offset mismatches caused by CSS sizes vs canvas pixel dimensions
+    const scaleX = rect.width > 0 ? (canvas.width / rect.width) : 1;
+    const scaleY = rect.height > 0 ? (canvas.height / rect.height) : 1;
+    
     return {
-      x: clientX - rect.left,
-      y: clientY - rect.top
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY
     };
   };
 
@@ -157,19 +196,62 @@ export default function Whiteboard({ paths, onChange }: WhiteboardProps) {
     e.preventDefault();
     if (!isDrawing || !currentStroke) return;
     setIsDrawing(false);
-    onChange([...paths, currentStroke]);
+
+    const updatedPaths = [...localPaths, currentStroke];
+    setLocalPaths(updatedPaths);
+
+    const nextHistory = canvasHistory.slice(0, historyPointer + 1);
+    const finalHistory = [...nextHistory, updatedPaths];
+    setCanvasHistory(finalHistory);
+    setHistoryPointer(finalHistory.length - 1);
+
+    onChange(updatedPaths);
     setCurrentStroke(null);
   };
 
   const undo = () => {
-    if (paths.length > 0) {
-      onChange(paths.slice(0, -1));
+    if (historyPointer > 0) {
+      const prevPointer = historyPointer - 1;
+      const prevPaths = canvasHistory[prevPointer];
+      setHistoryPointer(prevPointer);
+      setLocalPaths(prevPaths);
+      onChange(prevPaths);
+    } else if (historyPointer === 0) {
+      const emptyPaths: StrokePath[] = [];
+      setHistoryPointer(-1);
+      setLocalPaths(emptyPaths);
+      onChange(emptyPaths);
     }
   };
 
+  // Listen to Ctrl+Z or Cmd+Z for undoing
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        const target = e.target as HTMLElement;
+        // Ignore if user is typing in an input or textarea
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+          return;
+        }
+        e.preventDefault();
+        undo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [historyPointer, canvasHistory, localPaths, onChange]);
+
   const clear = () => {
     if (confirm('确定要清空画布吗？')) {
-      onChange([]);
+      const emptyPaths: StrokePath[] = [];
+      setLocalPaths(emptyPaths);
+
+      const nextHistory = canvasHistory.slice(0, historyPointer + 1);
+      const finalHistory = [...nextHistory, emptyPaths];
+      setCanvasHistory(finalHistory);
+      setHistoryPointer(finalHistory.length - 1);
+
+      onChange(emptyPaths);
     }
   };
 

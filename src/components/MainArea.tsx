@@ -29,6 +29,7 @@ interface MainAreaProps {
   customFestivals: Record<string, string>;
   setCustomFestivals: (festivals: Record<string, string>) => void;
   notes: Note[];
+  setNotes?: (notes: Note[]) => void;
   handleCreateNote: (initialTitle?: string, initialContent?: string, folder?: string, extraFields?: Partial<Note>) => void;
   setActiveNoteId: (id: string | null) => void;
   setNavState: (state: NavState) => void;
@@ -59,6 +60,7 @@ export default function MainArea({
   customFestivals,
   setCustomFestivals,
   notes,
+  setNotes,
   handleCreateNote,
   setActiveNoteId,
   setNavState,
@@ -78,6 +80,7 @@ export default function MainArea({
   const [webdavStatus, setWebdavStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [webdavLog, setWebdavLog] = useState<string[]>([]);
   const [backupStatus, setBackupStatus] = useState<string>('');
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'ui' | 'sync'>('ui');
 
   // Calendar Year/Month switching state: focusing on May & June 2026
   const [calYear, setCalYear] = useState<number>(2026);
@@ -93,9 +96,9 @@ export default function MainArea({
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
   // Release Manager local states
-  const [releaseVersion, setReleaseVersion] = useState('v1.0.0');
-  const [releaseTitle, setReleaseTitle] = useState('SovereignNote v1.0.0 铁血版发布');
-  const [releaseChangelog, setReleaseChangelog] = useState('## 🎉 架构更新\n\n- **数据传输引擎**: 支持全量 LWW 离线数据包导入与导出。\n- **标签系统升级**: 无限递归嵌套 6 阶阶梯式标签扫描与管理。\n- **自动发布集成**: 全面支持基于 GitHub Actions 的 CI/CD 流程，并支持自动发布到 GitHub Releases 端！');
+  const [releaseVersion, setReleaseVersion] = useState('v2.0.0');
+  const [releaseTitle, setReleaseTitle] = useState('SovereignNote v2.0.0 极客高精白板与精细管理版');
+  const [releaseChangelog, setReleaseChangelog] = useState('## 🎉 SovereignNote v2.0.0 核心更新\n\n- **🎨 强大的白板撤销逻辑 (Undo)**: 完美融合多阶历史状态回退栈，全面捕获绘制笔触。支持 `Ctrl + Z` (Mac 下 `Cmd + Z`) 键盘快捷键随时无缝回滚或撤销历史笔迹。\n- **📏 高分设备物理坐标对齐**: 重新设计白板画布的缩放捕捉模型，智能计算 CSS 触控边界与 Canvas 硬件底层分辨率的物理精度，完美平息多分屏或高分 Retina 屏下的笔迹偏移。\n- **⚙️ 精细化设置管理**: 对本地同步及界面偏好进行了页级微调分离，操作链路更加纯净、直观。\n- **⚡ 高效稳健编译**: 清理冗余配置，全面保障秒级打包和高可靠的热编译。');
   const [releaseLog, setReleaseLog] = useState<string[]>([]);
   const [isPackaging, setIsPackaging] = useState(false);
 
@@ -447,402 +450,533 @@ export default function MainArea({
   const activeDateEvents = useMemo(() => {
     if (!selectedCalendarDate) return [];
     return customEvents.filter(e => e.date === selectedCalendarDate);
-  }, [selectedCalendarDate, customEvents]);
+  }, [customEvents, selectedCalendarDate]);
 
-  // Linked notes written/referenced on the selected date
+  // Auto hash-linked notes list (notes containing `#YYYY-MM-DD`)
   const activeDateLinkedNotes = useMemo(() => {
     if (!selectedCalendarDate) return [];
-    // Can look for tags matching "#yyyy-mm-dd" or check explicit note associations
-    return notes.filter(n => {
-      if (n.deleted) return false;
-      const formattedDateHyphenStr = `#${selectedCalendarDate}`;
-      const formatSlashStr = `#${selectedCalendarDate.replace(/-/g, '/')}`;
-      return n.content.includes(formattedDateHyphenStr) || n.content.includes(formatSlashStr);
-    });
-  }, [selectedCalendarDate, notes]);
+    const hashTag = '#' + selectedCalendarDate;
+    return notes.filter(n => !n.deleted && n.content.includes(hashTag));
+  }, [notes, selectedCalendarDate]);
 
   // SYSTEM SETTINGS SUB CARD
   if (navState === 'settings') {
     return (
       <div className="flex-1 flex flex-col bg-slate-900 border-l border-slate-800 text-slate-200 overflow-y-auto w-full">
-        <div className="h-14 px-8 border-b border-slate-800 flex items-center shrink-0">
-          <Settings className="w-5 h-5 mr-3 text-indigo-400 animate-spin-slow" />
-          <h1 className="font-bold text-slate-100">设置与同步配置</h1>
+        <div className="h-14 px-8 border-b border-slate-800 flex items-center shrink-0 justify-between">
+          <div className="flex items-center">
+            <Settings className="w-5 h-5 mr-3 text-indigo-400 animate-spin-slow" />
+            <h1 className="font-bold text-slate-100">系统设置中心</h1>
+          </div>
+          <div className="text-slate-500 text-xs font-mono">
+            {activeSettingsTab === 'ui' ? '🎨 界面微调' : '☁️ 数据容灾'}
+          </div>
         </div>
-        <div className="p-8 max-w-2xl space-y-8 pb-16">
-          
-          {/* MULTI_DEVICE ADAPTIVE & ENV SETTINGS */}
-          <div className="space-y-4">
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-emerald-400" /> 多端真机环境与自适应无障碍管理
-            </h2>
-            <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-6">
-              
-              {/* Theme Selector Section */}
-              <div className="space-y-2">
-                <h3 className="font-semibold text-sm">🔆 系统视觉主题模式</h3>
-                <p className="text-xs text-slate-500">双轨高对比度防蓝光视觉主题，完美保护低视力年龄群众。夏普R2等液晶屏可显著提升日间可读性。</p>
-                <div className="grid grid-cols-2 gap-3 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setThemeMode('day')}
-                    className={`py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-                      themeMode === 'day'
-                        ? 'bg-amber-500 text-slate-950 shadow font-extrabold'
-                        : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-300'
-                    }`}
-                  >
-                    ☀️ 极速舒适：日间浅色模式
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setThemeMode('night')}
-                    className={`py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-                      themeMode === 'night'
-                        ? 'bg-indigo-600 text-slate-100 shadow font-extrabold border border-indigo-500/20'
-                        : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    🌙 昏暗护眼：夜间深色模式
-                  </button>
-                </div>
-              </div>
 
-              {/* Hardware / Preset Profiles */}
-              <div className="space-y-2 pt-4 border-t border-slate-800">
-                <h3 className="font-semibold text-sm">🔌 终端真机兼容环境预设</h3>
-                <p className="text-xs text-slate-500">
-                  一键配置当前设备的视口大小、字号适配、WebView 内核抗锯齿及点击响应防抖等底层兼容策略。
-                </p>
-                <div className="grid grid-cols-5 gap-2 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
-                  {[
-                    { id: 'win-pc', label: '💻 Win 电脑', desc: '1.0x UI / 中字' },
-                    { id: 'win-tablet', label: '📐 Win 平板', desc: '1.2x UI / 较大' },
-                    { id: 'android-13', label: '📱 安卓13手机', desc: '1.0x UI / 中字' },
-                    { id: 'sharp-r2', label: '💎 夏普 R2', desc: '0.9x UI / 12px' },
-                    { id: 'nokia-n1', label: '🎯 诺基亚 N1', desc: '1.3x UI / 大字' }
-                  ].map((prof) => (
-                    <button
-                      key={prof.id}
-                      type="button"
-                      onClick={() => applyDevicePreset(prof.id)}
-                      className={`p-2.5 rounded-lg text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1.5 ${
-                        deviceProfile === prof.id
-                          ? 'bg-emerald-600 text-white shadow font-extrabold border border-emerald-500/30'
-                          : 'bg-slate-900 border border-slate-850 text-slate-400 hover:text-slate-300'
-                      }`}
-                    >
-                      <span className="text-center truncate w-full">{prof.label}</span>
-                      <span className="text-[9px] opacity-70 font-normal">{prof.desc}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+        {/* 每一个大类一个页面：通过 Sub Tab 切换, 页面彻底分流 */}
+        <div className="px-8 py-3 bg-slate-950/40 border-b border-slate-800 flex items-center gap-4">
+          <div className="flex bg-slate-900/80 p-1 rounded-xl border border-slate-800 max-w-sm w-full">
+            <button
+              type="button"
+              onClick={() => setActiveSettingsTab('ui')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all ${
+                activeSettingsTab === 'ui'
+                  ? 'bg-indigo-600 text-white shadow-sm font-black'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Sliders className="w-4 h-4" />
+              🎨 界面控制
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSettingsTab('sync')}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all ${
+                activeSettingsTab === 'sync'
+                  ? 'bg-indigo-600 text-white shadow-sm font-black'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Database className="w-4 h-4" />
+              ☁️ 同步与备份
+            </button>
+          </div>
+        </div>
 
-              {/* Sizing Detail Slider */}
-              <div className="space-y-4 pt-4 border-t border-slate-800">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold text-sm">全局字号调节 (当前等级 {fontSizeLevel}/5)</h3>
-                    <p className="text-xs text-slate-500 mt-1">支持1至5级无障碍大小字体，让多视疲劳用户轻而易举体验。5级大字特别友好。</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4 bg-slate-950/40 p-4 rounded-lg">
-                  <button 
-                    onClick={() => setFontSizeLevel(Math.max(1, fontSizeLevel - 1))}
-                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-705 border border-slate-700 text-xs font-bold rounded-lg text-slate-300"
-                  >
-                    A- 缩小
-                  </button>
-                  <div className="flex-1 grid grid-cols-5 gap-1 text-center">
-                    {[1, 2, 3, 4, 5].map((lvl) => (
-                      <button 
-                        key={lvl}
-                        onClick={() => setFontSizeLevel(lvl)}
-                        className={`py-1 text-xs font-black rounded-md ${
-                          fontSizeLevel === lvl 
-                            ? 'bg-indigo-600 text-white shadow' 
-                            : 'bg-slate-900 text-slate-500 hover:bg-slate-800'
+        <div className="p-8 max-w-2xl pb-16">
+          {activeSettingsTab === 'ui' && (
+            <div className="space-y-8 animate-fade-in">
+              {/* MULTI_DEVICE ADAPTIVE & ENV SETTINGS */}
+              <div className="space-y-4">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-emerald-400" /> 多端真机环境与自适应无障碍管理
+                </h2>
+                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-6">
+                  
+                  {/* Theme Selector Section */}
+                  <div className="space-y-2">
+                    <h3 className="font-semibold text-sm">🔆 系统视觉主题模式</h3>
+                    <p className="text-xs text-slate-500">双轨高对比度防蓝光视觉主题，完美保护低视力年龄群众。夏普R2等液晶屏可显著提升日间可读性。</p>
+                    <div className="grid grid-cols-2 gap-3 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setThemeMode('day')}
+                        className={`py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                          themeMode === 'day'
+                            ? 'bg-amber-500 text-slate-950 shadow font-extrabold'
+                            : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-300'
                         }`}
                       >
-                        {lvl === 5 ? "5级大字" : `${lvl}级`}
+                        ☀️ 极速舒适：日间浅色模式
                       </button>
-                    ))}
+                      <button
+                        type="button"
+                        onClick={() => setThemeMode('night')}
+                        className={`py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                          themeMode === 'night'
+                            ? 'bg-indigo-600 text-slate-100 shadow font-extrabold border border-indigo-500/20'
+                            : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-250'
+                        }`}
+                      >
+                        🌙 昏暗护眼：夜间深色模式
+                      </button>
+                    </div>
                   </div>
-                  <button 
-                    onClick={() => setFontSizeLevel(Math.min(5, fontSizeLevel + 1))}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-lg text-white"
-                  >
-                    A+ 放大
-                  </button>
-                </div>
 
-                {setUiScale && (
-                  <div className="pt-2">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-semibold text-xs text-slate-400">细分界面微观 UI 调节比例</h4>
-                      <span className="text-xs font-bold font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">{uiScale.toFixed(2)}x</span>
+                  {/* Hardware / Preset Profiles */}
+                  <div className="space-y-2 pt-4 border-t border-slate-800">
+                    <h3 className="font-semibold text-sm">🔌 终端真机兼容环境预设</h3>
+                    <p className="text-xs text-slate-500">
+                      一键配置当前设备的视口大小、字号适配、WebView 内核抗锯齿及点击响应防抖等底层兼容策略。
+                    </p>
+                    <div className="grid grid-cols-5 gap-2 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
+                      {[
+                        { id: 'win-pc', label: '💻 Win 电脑', desc: '1.0x UI / 中字' },
+                        { id: 'win-tablet', label: '📐 Win 平板', desc: '1.2x UI / 较大' },
+                        { id: 'android-13', label: '📱 安卓13手机', desc: '1.0x UI / 中字' },
+                        { id: 'sharp-r2', label: '💎 夏普 R2', desc: '0.9x UI / 12px' },
+                        { id: 'nokia-n1', label: '🎯 诺基亚 N1', desc: '1.3x UI / 大字' }
+                      ].map((prof) => (
+                        <button
+                          key={prof.id}
+                          type="button"
+                          onClick={() => applyDevicePreset(prof.id)}
+                          className={`p-2.5 rounded-lg text-[11px] font-bold transition-all flex flex-col items-center justify-center gap-1.5 ${
+                            deviceProfile === prof.id
+                              ? 'bg-emerald-600 text-white shadow font-extrabold border border-emerald-500/30'
+                              : 'bg-slate-900 border border-slate-850 text-slate-400 hover:text-slate-300'
+                          }`}
+                        >
+                          <span className="text-center truncate w-full">{prof.label}</span>
+                          <span className="text-[9px] opacity-70 font-normal">{prof.desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Sizing Detail Slider */}
+                  <div className="space-y-4 pt-4 border-t border-slate-800">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="font-semibold text-sm">全局字号调节 (当前等级 {fontSizeLevel}/5)</h3>
+                        <p className="text-xs text-slate-500 mt-1">支持1至5级无障碍大小字体，让多视疲劳用户轻而易举体验。5级大字特别友好。</p>
+                      </div>
                     </div>
                     <div className="flex items-center gap-4 bg-slate-950/40 p-4 rounded-lg">
-                      <input 
-                        type="range"
-                        min="0.5"
-                        max="2.0"
-                        step="0.05"
-                        value={uiScale}
-                        onChange={(e) => setUiScale(parseFloat(e.target.value))}
-                        className="flex-1 accent-indigo-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
-                      />
                       <button 
-                        onClick={() => setUiScale(1.0)}
-                        className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg border border-slate-700 font-bold"
+                        onClick={() => setFontSizeLevel(Math.max(1, fontSizeLevel - 1))}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-705 border border-slate-700 text-xs font-bold rounded-lg text-slate-300"
                       >
-                        默认 1.0x
+                        A- 缩小
+                      </button>
+                      <div className="flex-1 grid grid-cols-5 gap-1 text-center">
+                        {[1, 2, 3, 4, 5].map((lvl) => (
+                          <button 
+                            key={lvl}
+                            onClick={() => setFontSizeLevel(lvl)}
+                            className={`py-1 text-xs font-black rounded-md ${
+                              fontSizeLevel === lvl 
+                                ? 'bg-indigo-600 text-white shadow' 
+                                : 'bg-slate-900 text-slate-500 hover:bg-slate-800'
+                            }`}
+                          >
+                            {lvl === 5 ? "5级大字" : `${lvl}级`}
+                          </button>
+                        ))}
+                      </div>
+                      <button 
+                        onClick={() => setFontSizeLevel(Math.min(5, fontSizeLevel + 1))}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-lg text-white"
+                      >
+                        A+ 放大
+                      </button>
+                    </div>
+
+                    {setUiScale && (
+                      <div className="pt-2">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-semibold text-xs text-slate-400">细分界面微观 UI 调节比例</h4>
+                          <span className="text-xs font-bold font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">{uiScale.toFixed(2)}x</span>
+                        </div>
+                        <div className="flex items-center gap-4 bg-slate-950/40 p-4 rounded-lg">
+                          <input 
+                            type="range"
+                            min="0.5"
+                            max="2.0"
+                            step="0.05"
+                            value={uiScale}
+                            onChange={(e) => setUiScale(parseFloat(e.target.value))}
+                            className="flex-1 accent-indigo-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                          />
+                          <button 
+                            onClick={() => setUiScale(1.0)}
+                            className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg border border-slate-700 font-bold"
+                          >
+                            默认 1.0x
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeSettingsTab === 'sync' && (
+            <div className="space-y-8 animate-fade-in">
+              <div className="space-y-4">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Database className="w-4 h-4 text-emerald-400" /> 本地与局域网节点
+                </h2>
+                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-sm">局域网 (LAN) 同步与广播</h3>
+                      <p className="text-xs text-slate-500 mt-1">自动识别周围设备网络，并通过 P2P/WebRTC 同步 LWW 差异状态</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={async () => {
+                          try {
+                            const apiBase = getApiBaseUrl();
+                            const res = await fetch(`${apiBase}/notes/sync/force`, { method: 'POST' });
+                            if (res.ok) {
+                              alert('强制同步触发成功');
+                            } else {
+                              alert('同步失败，请检查本机代理节点。');
+                            }
+                          } catch {
+                            alert('无法连接到本地核心网络。');
+                          }
+                        }}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-lg text-white flex items-center gap-1 shadow-sm"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        强制手动同步
+                      </button>
+                      <span className="px-2.5 py-1.5 bg-emerald-600/10 text-emerald-400 border border-emerald-500/15 text-[10px] uppercase font-bold rounded">
+                        活跃中
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* WEBDAV EXPANDED WITH PORT AND FOLDER / PATH SUPPORT */}
+                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Server className="w-4 h-4 text-indigo-400" />
+                    <div>
+                      <h3 className="font-semibold text-sm">WebDAV 云端服务器备份</h3>
+                      <p className="text-xs text-slate-500 mt-1">支持自定义连接端口和存储路径文件夹目录，与 NextCloud、坚果云互联。</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs text-slate-400 font-bold">服务器 URL</label>
+                      <input 
+                        className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-indigo-500 outline-none" 
+                        value={webdavConfig.url} 
+                        onChange={(e) => setWebdavConfig({ ...webdavConfig, url: e.target.value })}
+                        placeholder="https://dav.jianguoyun.com/dav" 
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-slate-400 font-bold">自定义连接端口 (Port)</label>
+                      <input 
+                        className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-indigo-500 outline-none" 
+                        value={webdavConfig.port} 
+                        onChange={(e) => setWebdavConfig({ ...webdavConfig, port: e.target.value })}
+                        placeholder="443" 
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-slate-400 font-bold">备份路径文件夹 (Folder Path)</label>
+                      <input 
+                        className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-indigo-500 outline-none" 
+                        value={webdavConfig.path} 
+                        onChange={(e) => setWebdavConfig({ ...webdavConfig, path: e.target.value })}
+                        placeholder="/SovereignNotes/backup" 
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-slate-400 font-bold">用户名</label>
+                      <input 
+                        className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-indigo-500 outline-none" 
+                        value={webdavConfig.username} 
+                        onChange={(e) => setWebdavConfig({ ...webdavConfig, username: e.target.value })}
+                        placeholder="请输入 WebDAV 用户" 
+                      />
+                    </div>
+                    <div className="md:col-span-2 space-y-1">
+                      <label className="text-xs text-slate-400 font-bold">应用令牌密码</label>
+                      <input 
+                        type="password"
+                        className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-indigo-500 outline-none" 
+                        value={webdavConfig.password} 
+                        onChange={(e) => setWebdavConfig({ ...webdavConfig, password: e.target.value })}
+                        placeholder="应用独立安全密码" 
+                      />
+                    </div>
+                  </div>
+
+                  {/* Simulation Logging Window */}
+                  {webdavLog.length > 0 && (
+                    <div className="bg-slate-950 p-3 rounded-lg font-mono text-[11px] text-indigo-300 space-y-1 border border-indigo-900/40">
+                      {webdavLog.map((log, i) => <div key={i}>{log}</div>)}
+                    </div>
+                  )}
+
+                  <div className="flex gap-3 pt-2">
+                    <button 
+                      onClick={handleTestWebDAV}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold transition-all text-indigo-400 border border-slate-700"
+                    >
+                      测试连接协议 & 自定义文件夹
+                    </button>
+                    {webdavStatus === 'success' && (
+                      <button 
+                        onClick={handleBackupToWebDAV}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs font-bold transition-colors text-white"
+                      >
+                        立即进行 WebDAV 同步备份
+                      </button>
+                    )}
+                  </div>
+                  {backupStatus && (
+                    <div className="text-xs text-emerald-400 font-semibold bg-emerald-900/10 p-2.5 rounded border border-emerald-500/15">{backupStatus}</div>
+                  )}
+                </div>
+
+                {/* FTP CUSTOM SERVER INTEGRATION */}
+                {ftpConfig && setFtpConfig && (
+                  <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Database className="w-4 h-4 text-emerald-400" />
+                      <div>
+                        <h3 className="font-semibold text-sm">私有 FTP / NAS 存储挂载备份</h3>
+                        <p className="text-xs text-slate-500 mt-1">直接挂载到私有 NAS 或旧服务器 (通过 suppaftp & tokio-ftp 原生对接)。</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-xs text-slate-400 font-bold">FTP 主机和端口</label>
+                        <input 
+                          className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
+                          value={ftpConfig.host} 
+                          onChange={(e) => setFtpConfig({ ...ftpConfig, host: e.target.value })}
+                          placeholder="192.168.1.100:21" 
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs text-slate-400 font-bold">同步目录路径</label>
+                        <input 
+                          className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
+                          value={ftpConfig.path} 
+                          onChange={(e) => setFtpConfig({ ...ftpConfig, path: e.target.value })}
+                          placeholder="/Backup/Notes" 
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs text-slate-400 font-bold">FTP 用户名</label>
+                        <input 
+                          className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
+                          value={ftpConfig.user} 
+                          onChange={(e) => setFtpConfig({ ...ftpConfig, user: e.target.value })}
+                          placeholder="admin" 
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs text-slate-400 font-bold">FTP 密码</label>
+                        <input 
+                          type="password"
+                          className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
+                          value={ftpConfig.pass} 
+                          onChange={(e) => setFtpConfig({ ...ftpConfig, pass: e.target.value })}
+                          placeholder="FTP 安全密码" 
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-3 pt-2">
+                      <button 
+                        type="button"
+                        onClick={async () => {
+                          setBackupStatus('正在尝试上传 FTP...');
+                          try {
+                            // 先将当前的最新客户端 notes 刷入本地 Rust 数据库 (解决备份为空的问题!)
+                            try {
+                              const syncRes = await fetch(`${getApiBaseUrl()}/notes/sync`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(notes)
+                              });
+                              if (syncRes.ok) {
+                                const resNotes = await syncRes.json();
+                                if (setNotes) setNotes(resNotes);
+                              }
+                            } catch (e) {
+                              console.warn("Silently pushing local notes to core-backend SQLite prior to FTP export failed", e);
+                            }
+
+                            const apiBase = getApiBaseUrl();
+                            const res = await fetch(`${apiBase}/sync/ftp`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(ftpConfig)
+                            });
+                            const data = await res.json();
+                            if (res.ok && data.success) {
+                              setBackupStatus('FTP 增量备份推送成功: ' + data.message);
+                            } else {
+                              setBackupStatus('FTP 错误: ' + (data.message || '上传失败') + (data.error ? ` (${data.error})` : ''));
+                            }
+                          } catch (err: any) {
+                            setBackupStatus('FTP 连接失败: 无法连接本地后台代理节点 (' + err.message + ')');
+                          }
+                        }}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold transition-all text-white border border-emerald-500 whitespace-nowrap"
+                      >
+                        🚀 推送 (仅上传备份)
+                      </button>
+
+                      <button 
+                        type="button"
+                        onClick={async () => {
+                          setBackupStatus('正在尝试从 FTP 下载并合并备份...');
+                          try {
+                            const apiBase = getApiBaseUrl();
+                            const res = await fetch(`${apiBase}/sync/ftp/pull`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(ftpConfig)
+                            });
+                            const data = await res.json();
+                            if (res.ok && data.success) {
+                              setBackupStatus('FTP 拉取合并成功: ' + data.message);
+                              if (data.notes && setNotes) {
+                                setNotes(data.notes);
+                                try {
+                                  localStorage.setItem('sovereign_notes', JSON.stringify(data.notes));
+                                } catch (_) {}
+                              }
+                            } else {
+                              setBackupStatus('FTP 拉取错误: ' + (data.message || '拉取失败') + (data.error ? ` (${data.error})` : ''));
+                            }
+                          } catch (err: any) {
+                            setBackupStatus('FTP 连接失败: 无法连接本地后台代理节点 (' + err.message + ')');
+                          }
+                        }}
+                        className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-bold transition-all text-white border border-slate-600 whitespace-nowrap"
+                      >
+                        📥 拉取 (仅下载合并)
+                      </button>
+
+                      <button 
+                        type="button"
+                        onClick={async () => {
+                          setBackupStatus('正在执行 FTP 双向同步 (下载->本地 LWW 合并->重新上载最新数据)...');
+                          try {
+                            // 1. 同步本地 notes 状态到 SQLite 接口（确保本地最新更改被提交到 SQLite 数据库先）
+                            try {
+                              await fetch(`${getApiBaseUrl()}/notes/sync`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(notes)
+                              });
+                            } catch (e) {
+                              console.warn("Silent push pre-FTP sync failed", e);
+                            }
+
+                            // 2. 调用 FTP 同步接口
+                            const apiBase = getApiBaseUrl();
+                            const res = await fetch(`${apiBase}/sync/ftp/sync`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(ftpConfig)
+                            });
+                            const data = await res.json();
+                            if (res.ok && data.success) {
+                              setBackupStatus('FTP 双向合并同步已成功: ' + data.message);
+                              if (data.notes && setNotes) {
+                                setNotes(data.notes);
+                                try {
+                                  localStorage.setItem('sovereign_notes', JSON.stringify(data.notes));
+                                } catch (_) {}
+                              }
+                            } else {
+                              setBackupStatus('FTP 错误: ' + (data.message || '双向同步失败') + (data.error ? ` (${data.error})` : ''));
+                            }
+                          } catch (err: any) {
+                            setBackupStatus('FTP 同步失败: 无法连接本地后台代理节点 (' + err.message + ')');
+                          }
+                        }}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs font-bold transition-all text-white border border-indigo-500 whitespace-nowrap"
+                      >
+                        🔄 双向同步 (融合数据)
                       </button>
                     </div>
                   </div>
                 )}
               </div>
 
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <Database className="w-4 h-4" /> 本地与局域网节点
-            </h2>
-            <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-sm">局域网 (LAN) 同步与广播</h3>
-                  <p className="text-xs text-slate-500 mt-1">自动识别周围设备网络，并通过 P2P/WebRTC 同步 LWW 差异状态</p>
-                </div>
-                <div className="flex items-center gap-2">
+              {/* BACKUP & MANUAL TOOLS */}
+              <div className="space-y-4">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Database className="w-4 h-4 text-emerald-400" /> 手动容灾还原
+                </h2>
+                <div className="flex gap-4">
                   <button 
-                    onClick={async () => {
-                      try {
-                        const apiBase = getApiBaseUrl();
-                        const res = await fetch(`${apiBase}/notes/sync/force`, { method: 'POST' });
-                        if (res.ok) {
-                          alert('强制同步触发成功');
-                        } else {
-                          alert('同步失败，请检查本机代理节点。');
+                    type="button"
+                    onClick={handleExportDatabase}
+                    className="flex-1 p-5 bg-slate-800/50 rounded-xl border border-slate-800 hover:border-indigo-500/50 text-left transition-all"
+                  >
+                     <h3 className="font-bold text-sm text-indigo-400 mb-1">导出 LWW 全量数据库</h3>
+                     <p className="text-xs text-slate-500">将本地所有已写文章、标签、日程组合打包导出成 JSON 下载。</p>
+                  </button>
+
+                  <label 
+                    className="flex-1 p-5 bg-slate-800/50 rounded-xl border border-slate-800 hover:border-indigo-500/50 text-left cursor-pointer transition-all"
+                  >
+                     <h3 className="font-bold text-sm text-indigo-400 mb-1">导入 LWW 数据库合并</h3>
+                     <p className="text-xs text-slate-500">选择以前导出的 JSON 导入，智能 LWW 最终写入算法会保留新内容。</p>
+                     <input 
+                      type="file" 
+                      accept=".json" 
+                      className="hidden" 
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const text = await file.text();
+                          handleImportDatabase(text);
                         }
-                      } catch {
-                        alert('无法连接到本地核心网络。');
-                      }
-                    }}
-                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-xs font-bold rounded-lg text-white flex items-center gap-1 shadow-sm"
-                  >
-                    <RefreshCw className="w-3 h-3" />
-                    强制手动同步
-                  </button>
-                  <span className="px-2.5 py-1.5 bg-emerald-600/10 text-emerald-400 border border-emerald-500/15 text-[10px] uppercase font-bold rounded">
-                    活跃中
-                  </span>
+                      }} 
+                     />
+                  </label>
                 </div>
               </div>
             </div>
-
-            {/* WEBDAV EXPANDED WITH PORT AND FOLDER / PATH SUPPORT */}
-            <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4">
-              <div className="flex items-center gap-2">
-                <Server className="w-4 h-4 text-indigo-400" />
-                <div>
-                  <h3 className="font-semibold text-sm">WebDAV 云端服务器备份</h3>
-                  <p className="text-xs text-slate-500 mt-1">支持自定义连接端口和存储路径文件夹目录，与 NextCloud、坚果云互联。</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-xs text-slate-400 font-bold">服务器 URL</label>
-                  <input 
-                    className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-indigo-500 outline-none" 
-                    value={webdavConfig.url} 
-                    onChange={(e) => setWebdavConfig({ ...webdavConfig, url: e.target.value })}
-                    placeholder="https://dav.jianguoyun.com/dav" 
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-slate-400 font-bold">自定义连接端口 (Port)</label>
-                  <input 
-                    className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-indigo-500 outline-none" 
-                    value={webdavConfig.port} 
-                    onChange={(e) => setWebdavConfig({ ...webdavConfig, port: e.target.value })}
-                    placeholder="443" 
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-slate-400 font-bold">备份路径文件夹 (Folder Path)</label>
-                  <input 
-                    className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-indigo-500 outline-none" 
-                    value={webdavConfig.path} 
-                    onChange={(e) => setWebdavConfig({ ...webdavConfig, path: e.target.value })}
-                    placeholder="/SovereignNotes/backup" 
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-slate-400 font-bold">用户名</label>
-                  <input 
-                    className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-indigo-500 outline-none" 
-                    value={webdavConfig.username} 
-                    onChange={(e) => setWebdavConfig({ ...webdavConfig, username: e.target.value })}
-                    placeholder="请输入 WebDAV 用户" 
-                  />
-                </div>
-                <div className="md:col-span-2 space-y-1">
-                  <label className="text-xs text-slate-400 font-bold">应用令牌密码</label>
-                  <input 
-                    type="password"
-                    className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-indigo-500 outline-none" 
-                    value={webdavConfig.password} 
-                    onChange={(e) => setWebdavConfig({ ...webdavConfig, password: e.target.value })}
-                    placeholder="应用独立安全密码" 
-                  />
-                </div>
-              </div>
-
-              {/* Simulation Logging Window */}
-              {webdavLog.length > 0 && (
-                <div className="bg-slate-950 p-3 rounded-lg font-mono text-[11px] text-indigo-300 space-y-1 border border-indigo-900/40">
-                  {webdavLog.map((log, i) => <div key={i}>{log}</div>)}
-                </div>
-              )}
-
-              <div className="flex gap-3 pt-2">
-                <button 
-                  onClick={handleTestWebDAV}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs font-bold transition-all text-indigo-400 border border-slate-700"
-                >
-                  测试连接协议 & 自定义文件夹
-                </button>
-                {webdavStatus === 'success' && (
-                  <button 
-                    onClick={handleBackupToWebDAV}
-                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs font-bold transition-colors text-white"
-                  >
-                    立即进行 WebDAV 同步备份
-                  </button>
-                )}
-              </div>
-              {backupStatus && (
-                <div className="text-xs text-emerald-400 font-semibold bg-emerald-900/10 p-2.5 rounded border border-emerald-500/15">{backupStatus}</div>
-              )}
-            </div>
-
-            {/* FTP CUSTOM SERVER INTEGRATION */}
-            {ftpConfig && setFtpConfig && (
-              <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4 mt-4">
-                <div className="flex items-center gap-2">
-                  <Database className="w-4 h-4 text-emerald-400" />
-                  <div>
-                    <h3 className="font-semibold text-sm">私有 FTP / NAS 存储挂载挂载备份</h3>
-                    <p className="text-xs text-slate-500 mt-1">直接挂载到私有 NAS 或旧服务器 (通过 suppaftp & tokio-ftp 原生对接)。</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-xs text-slate-400 font-bold">FTP 主机和端口</label>
-                    <input 
-                      className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
-                      value={ftpConfig.host} 
-                      onChange={(e) => setFtpConfig({ ...ftpConfig, host: e.target.value })}
-                      placeholder="192.168.1.100:21" 
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-slate-400 font-bold">同步目录路径</label>
-                    <input 
-                      className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
-                      value={ftpConfig.path} 
-                      onChange={(e) => setFtpConfig({ ...ftpConfig, path: e.target.value })}
-                      placeholder="/Backup/Notes" 
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-slate-400 font-bold">FTP 用户名</label>
-                    <input 
-                      className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
-                      value={ftpConfig.user} 
-                      onChange={(e) => setFtpConfig({ ...ftpConfig, user: e.target.value })}
-                      placeholder="admin" 
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-slate-400 font-bold">FTP 密码</label>
-                    <input 
-                      type="password"
-                      className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
-                      value={ftpConfig.pass} 
-                      onChange={(e) => setFtpConfig({ ...ftpConfig, pass: e.target.value })}
-                      placeholder="FTP 安全密码" 
-                    />
-                  </div>
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <button 
-                    onClick={async () => {
-                      setBackupStatus('正在尝试上传 FTP...');
-                      try {
-                        const apiBase = getApiBaseUrl();
-                        const res = await fetch(`${apiBase}/sync/ftp`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify(ftpConfig)
-                        });
-                        const data = await res.json();
-                        if (res.ok && data.success) {
-                          setBackupStatus('FTP 增量备份推送成功: ' + data.message);
-                        } else {
-                          setBackupStatus('FTP 错误: ' + (data.message || '上传失败') + (data.error ? ` (${data.error})` : ''));
-                        }
-                      } catch (err: any) {
-                        setBackupStatus('FTP 连接失败: 无法连接本地后台代理节点 (' + err.message + ')');
-                      }
-                    }}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold transition-all text-white border border-emerald-500"
-                  >
-                    🚀 推送本地方案至 FTP 服务器
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* BACKUP & MANUAL TOOLS */}
-          <div className="space-y-4">
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <Database className="w-4 h-4 text-emerald-400" /> 手动容灾还原
-            </h2>
-            <div className="flex gap-4">
-              <button 
-                onClick={handleExportDatabase}
-                className="flex-1 p-5 bg-slate-800/50 rounded-xl border border-slate-800 hover:border-indigo-500/50 text-left transition-all"
-              >
-                 <h3 className="font-bold text-sm text-indigo-400 mb-1">导出 LWW 全量数据库</h3>
-                 <p className="text-xs text-slate-500">将本地所有已写文章、标签、日程组合打包导出成 JSON 下载。</p>
-              </button>
-
-              <label 
-                className="flex-1 p-5 bg-slate-800/50 rounded-xl border border-slate-800 hover:border-indigo-500/50 text-left cursor-pointer transition-all"
-              >
-                 <h3 className="font-bold text-sm text-indigo-400 mb-1">导入 LWW 数据库合并</h3>
-                 <p className="text-xs text-slate-500">选择以前导出的 JSON 导入，智能 LWW 最终写入算法会保留新内容。</p>
-                 <input 
-                  type="file" 
-                  accept=".json" 
-                  className="hidden" 
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      const text = await file.text();
-                      handleImportDatabase(text);
-                    }
-                  }} 
-                 />
-              </label>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     );
@@ -1816,6 +1950,7 @@ jobs:
       <div className="flex-1 flex overflow-hidden">
         {activeNote.type === 'whiteboard' ? (
           <Whiteboard 
+            key={activeNote.id}
             paths={activeNote.content ? JSON.parse(activeNote.content) : []} 
             onChange={(paths) => handleNoteChange(activeNote.title, JSON.stringify(paths))}
           />
