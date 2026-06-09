@@ -1,4 +1,4 @@
-import { Search, FileText, Tag, Calendar, Settings, ChevronLeft, Menu, Rocket } from 'lucide-react';
+import { Search, FileText, Tag, Calendar, Settings, ChevronLeft, Menu, Rocket, Info } from 'lucide-react';
 import { NavState } from '../types';
 
 interface SidebarProps {
@@ -182,8 +182,9 @@ export default function Sidebar({
         </div>
       </nav>
 
-      <div className="p-2 border-t border-slate-800 shrink-0">
-        <NavItem active={navState === 'settings'} onClick={() => setNavState('settings')} icon={<Settings />} label="设置" />
+      <div className="p-2 border-t border-slate-800 shrink-0 space-y-1">
+        <NavItem active={navState === 'about'} onClick={() => setNavState('about')} icon={<Info className="w-5 h-5 text-sky-400" />} label="关于与版本" />
+        <NavItem active={navState === 'settings'} onClick={() => setNavState('settings')} icon={<Settings className="w-5 h-5" />} label="设置" />
       </div>
     </div>
   );

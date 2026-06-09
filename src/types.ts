@@ -33,4 +33,4 @@ export interface CalendarEvent {
   isCustomFestival?: boolean;
 }
 
-export type NavState = 'notes' | 'tags' | 'calendar' | 'settings' | 'releases' | 'tools';
+export type NavState = 'notes' | 'tags' | 'calendar' | 'settings' | 'releases' | 'tools' | 'about';

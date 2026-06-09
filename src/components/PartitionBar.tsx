@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { NavState, Note, CalendarEvent } from '../types';
 import { 
   Plus, ChevronLeft, Trash2, Folder, FolderOpen, Tag, Download, 
-  Upload, Hash, Calendar, Sliders, HardDrive, FileText, CheckCircle2, Rocket 
+  Upload, Hash, Calendar, Sliders, HardDrive, FileText, CheckCircle2, Rocket, Info 
 } from 'lucide-react';
 import { safeStorage } from '../utils/safeStorage';
 
@@ -314,12 +314,14 @@ export default function PartitionBar({
           {navState === 'tags' && <Tag className="w-4 h-4 mr-2 text-pink-400" />}
           {navState === 'calendar' && <Calendar className="w-4 h-4 mr-2 text-emerald-400" />}
           {navState === 'settings' && <Sliders className="w-4 h-4 mr-2 text-sky-400" />}
+          {navState === 'about' && <Info className="w-4 h-4 mr-2 text-sky-400" />}
           {navState === 'releases' && <Rocket className="w-4 h-4 mr-2 text-amber-400 animate-pulse" />}
           {navState === 'tools' && <Rocket className="w-4 h-4 mr-2 text-amber-400 animate-pulse" />}
           {navState === 'notes' && '笔记列表'}
           {navState === 'tags' && '多级标签目录'}
           {navState === 'calendar' && '今日日程计划'}
           {navState === 'settings' && '系统管理'}
+          {navState === 'about' && '关于与版本'}
           {navState === 'releases' && '自动化部署中心'}
           {navState === 'tools' && '系统小工具'}
         </h2>

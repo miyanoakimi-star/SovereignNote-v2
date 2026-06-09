@@ -8,7 +8,7 @@ import { universalExport } from '../utils/export';
 import { getApiBaseUrl } from '../lib/api';
 import { 
   Layout, Eye, FileDown, EyeOff, Settings, Calendar as CalendarIcon, 
-  Database, ChevronLeft, ChevronRight, X, Server, Sliders, Rocket, Terminal, Check, RefreshCw, Upload,
+  Database, ChevronLeft, ChevronRight, X, Server, Sliders, Rocket, Terminal, Check, RefreshCw, Upload, Info,
   Bold, Italic, Code, Link, Image, List, ListOrdered, Quote, Table, CheckSquare
 } from 'lucide-react';
 
@@ -511,6 +511,48 @@ export default function MainArea({
       return contentIncludes || mapIncludes;
     });
   }, [notes, selectedCalendarDate, noteTagsMap]);
+
+  // ABOUT AND CHANGELOG PAGE
+  if (navState === 'about') {
+    return (
+      <div className="flex-1 flex flex-col bg-slate-900 border-l border-slate-800 text-slate-200 overflow-y-auto w-full">
+        <div className="h-14 px-8 border-b border-slate-800 flex items-center shrink-0 justify-between">
+          <div className="flex items-center">
+            <Info className="w-5 h-5 mr-3 text-sky-400" />
+            <h1 className="font-bold text-slate-100">关于与系统更新日志</h1>
+          </div>
+          <div className="text-slate-500 text-xs font-mono">
+            {releaseVersion}
+          </div>
+        </div>
+
+        <div className="p-8 max-w-3xl space-y-8 animate-fade-in mx-auto w-full">
+          <div className="bg-slate-950/40 border border-slate-800 p-8 rounded-2xl flex flex-col items-center justify-center text-center space-y-4">
+             <div className="w-16 h-16 rounded-xl bg-indigo-600 flex items-center justify-center text-3xl shadow-lg border border-indigo-400/30">S</div>
+             <div>
+               <h2 className="text-xl font-bold text-slate-100">SovereignNote</h2>
+               <p className="text-xs text-slate-400 mt-1 font-mono">Version: {releaseVersion}</p>
+             </div>
+             <p className="text-xs text-slate-500 leading-relaxed max-w-lg mt-2">
+               一款深度贯彻主权自治、完全零依赖云服务的跨平台极客笔记系统。内建全终端屏幕自适应与强大的 Markdown/白板/导图 生产力套件。
+             </p>
+          </div>
+
+          <div className="space-y-4">
+            <h2 className="text-xs font-bold text-sky-400 uppercase tracking-widest flex items-center gap-2">
+               📝 当前版本更新指引
+            </h2>
+            <div className="p-6 bg-slate-950/60 rounded-xl border border-slate-800 space-y-4">
+              <div 
+                className="markdown-body text-slate-300 text-sm leading-7 space-y-2 prose prose-invert max-w-none"
+                dangerouslySetInnerHTML={{ __html: parseMarkdown(releaseChangelog) }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // SYSTEM SETTINGS SUB CARD
   if (navState === 'settings') {
