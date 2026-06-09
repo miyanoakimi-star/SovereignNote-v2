@@ -37,16 +37,22 @@ impl FtpStorageProvider {
         
         let path = format!("{}/sovereign_backup.json", config.path);
         
-        let mut buffer = std::io::Cursor::new(Vec::new());
-        match ftp_stream.retr(&path, &mut buffer).await {
-            Ok(data_stream) => {
+        match ftp_stream.retr_stream(&path).await {
+            Ok(mut data_stream) => {
+                use futures_util::io::AsyncReadExt;
+                let mut buffer = Vec::new();
+                if let Err(e) = data_stream.read_to_end(&mut buffer).await {
+                    let _ = ftp_stream.quit().await;
+                    return Err(e.to_string());
+                }
+                
                 if let Err(e) = ftp_stream.finalize_retr_stream(data_stream).await {
                     let _ = ftp_stream.quit().await;
                     return Err(e.to_string());
                 }
                 
                 let _ = ftp_stream.quit().await;
-                Ok(Some(buffer.into_inner()))
+                Ok(Some(buffer))
             }
             Err(e) => {
                 let _ = ftp_stream.quit().await;
