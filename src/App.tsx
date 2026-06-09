@@ -343,9 +343,24 @@ export default function App() {
   function handleImportDatabase(jsonData: string) {
     try {
       const parsed = JSON.parse(jsonData);
-      if (parsed.notes && Array.isArray(parsed.notes)) {
+      let notesToImport: Note[] | null = null;
+      let parsedObj: any = parsed;
+
+      if (parsedObj.notes && Array.isArray(parsedObj.notes)) {
+        notesToImport = parsedObj.notes;
+      } else if (Array.isArray(parsedObj)) {
+        // Fallback for raw note array exports
+        notesToImport = parsedObj;
+        parsedObj = {}; // No other config metadata available
+      } else if (parsedObj.id && parsedObj.created_at) {
+         // Fallback for single note export
+         notesToImport = [parsedObj];
+         parsedObj = {};
+      }
+
+      if (notesToImport) {
         // Merge notes using LWW algorithm
-        const merged = [...parsed.notes, ...notes];
+        const merged = [...notesToImport, ...notes];
         // Ensure no duplicate IDs by using newest updated_at
         const uniqueMap: Record<string, Note> = {};
         for (const n of merged) {
@@ -357,23 +372,23 @@ export default function App() {
         setNotes(finalNotes);
         saveLocalNotes(finalNotes);
 
-        if (parsed.customEvents && Array.isArray(parsed.customEvents)) {
-          setCustomEvents(parsed.customEvents);
+        if (parsedObj.customEvents && Array.isArray(parsedObj.customEvents)) {
+          setCustomEvents(parsedObj.customEvents);
         }
-        if (parsed.webdavConfig) {
-          setWebdavConfig(parsed.webdavConfig);
+        if (parsedObj.webdavConfig) {
+          setWebdavConfig(parsedObj.webdavConfig);
         }
-        if (parsed.fontSizeLevel) {
-          setFontSizeLevel(parsed.fontSizeLevel);
+        if (parsedObj.fontSizeLevel) {
+          setFontSizeLevel(parsedObj.fontSizeLevel);
         }
-        if (parsed.customFestivals) {
-          setCustomFestivals(parsed.customFestivals);
+        if (parsedObj.customFestivals) {
+          setCustomFestivals(parsedObj.customFestivals);
         }
-        if (parsed.independentTags && Array.isArray(parsed.independentTags)) {
-          setIndependentTags(parsed.independentTags);
+        if (parsedObj.independentTags && Array.isArray(parsedObj.independentTags)) {
+          setIndependentTags(parsedObj.independentTags);
         }
-        if (parsed.noteTagsMap && typeof parsed.noteTagsMap === 'object') {
-          setNoteTagsMap(parsed.noteTagsMap);
+        if (parsedObj.noteTagsMap && typeof parsedObj.noteTagsMap === 'object') {
+          setNoteTagsMap(parsedObj.noteTagsMap);
         }
         alert("数据库同步备份导入成功！");
       } else {
