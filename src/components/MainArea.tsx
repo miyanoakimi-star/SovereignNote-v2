@@ -5,6 +5,7 @@ import { getLunarInfo } from '../utils/lunar';
 import Whiteboard from './Whiteboard';
 import Mindmap from './Mindmap';
 import { universalExport } from '../utils/export';
+import { safeStorage } from '../utils/safeStorage';
 import { getApiBaseUrl } from '../lib/api';
 import { 
   Layout, Eye, FileDown, EyeOff, Settings, Calendar as CalendarIcon, 
@@ -108,9 +109,9 @@ export default function MainArea({
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
   // Release Manager local states
-  const [releaseVersion, setReleaseVersion] = useState('v2.0.0');
-  const [releaseTitle, setReleaseTitle] = useState('SovereignNote v2.0.0 极客高精白板与精细管理版');
-  const [releaseChangelog, setReleaseChangelog] = useState('## 🎉 SovereignNote v2.0.0 核心更新\n\n- **🎨 强大的白板撤销逻辑 (Undo)**: 完美融合多阶历史状态回退栈，全面捕获绘制笔触。支持 `Ctrl + Z` (Mac 下 `Cmd + Z`) 键盘快捷键随时无缝回滚或撤销历史笔迹。\n- **📏 高分设备物理坐标对齐**: 重新设计白板画布的缩放捕捉模型，智能计算 CSS 触控边界与 Canvas 硬件底层分辨率的物理精度，完美平息多分屏或高分 Retina 屏下的笔迹偏移。\n- **⚙️ 精细化设置管理**: 对本地同步及界面偏好进行了页级微调分离，操作链路更加纯净、直观。\n- **⚡ 高效稳健编译**: 清理冗余配置，全面保障秒级打包和高可靠的热编译。');
+  const [releaseVersion, setReleaseVersion] = useState('v2.0.1');
+  const [releaseTitle, setReleaseTitle] = useState('SovereignNote v2.0.1 标签构架重构与缓存管理优化');
+  const [releaseChangelog, setReleaseChangelog] = useState('## 🎉 SovereignNote v2.0.1 核心更新\n\n- **🏷️ 全局标签关联重构**: 重构基于内容的标签自动归纳算法与多层树级统计模型，修复了部分情况下标签目录输出不全的问题。\n- **🗑️ 硬件级缓存安全销毁**: 系统设置面板新增浏览器本地沙盒数据库清空选项，以便随时安全地重置终端并抛弃离线缓存。\n- **🐛 细节体验改善**: 其他一系列底层稳定性修复。');
   const [releaseLog, setReleaseLog] = useState<string[]>([]);
   const [isPackaging, setIsPackaging] = useState(false);
 
@@ -972,7 +973,7 @@ export default function MainArea({
                               if (data.notes && setNotes) {
                                 setNotes(data.notes);
                                 try {
-                                  localStorage.setItem('sovereign_notes', JSON.stringify(data.notes));
+                                  safeStorage.setItem('sovereign_notes', JSON.stringify(data.notes));
                                 } catch (_) {}
                               }
                             } else {
@@ -1016,7 +1017,7 @@ export default function MainArea({
                               if (data.notes && setNotes) {
                                 setNotes(data.notes);
                                 try {
-                                  localStorage.setItem('sovereign_notes', JSON.stringify(data.notes));
+                                  safeStorage.setItem('sovereign_notes', JSON.stringify(data.notes));
                                 } catch (_) {}
                               }
                             } else {
@@ -1033,6 +1034,33 @@ export default function MainArea({
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* LOCAL STORAGE CLEAR */}
+              <div className="space-y-4">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Database className="w-4 h-4 text-rose-400" /> 本地前端缓存清空与重置
+                </h2>
+                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4">
+                  <div>
+                    <h3 className="font-semibold text-sm">彻底清空笔记前端缓存数据库</h3>
+                    <p className="text-xs text-slate-500 mt-1">当前由于应用开启了离线优先架构，笔记内容会直接存储在您的浏览器缓存中。如果您在本地硬盘删除了数据库文件且希望网页数据随之消失，需点击此处清空前端缓存并重载页面。</p>
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button 
+                      onClick={() => {
+                        if (confirm('警告：此操作将彻底删除本浏览器中的所有 SovereignNote 笔记和同步配置，且无法恢复。仅适用于重置或脱离本设备前的数据清理。你确定要销毁前端缓存吗？')) {
+                          safeStorage.removeItem('sovereign_notes');
+                          safeStorage.removeItem('sovereign_events');
+                          window.location.reload();
+                        }
+                      }}
+                      className="px-4 py-2 bg-rose-900/50 hover:bg-rose-800/80 rounded-lg text-xs font-bold transition-all text-white border border-rose-500/30"
+                    >
+                      🗑️ 销毁全部前端缓存数据并重载页面
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* BACKUP & MANUAL TOOLS */}

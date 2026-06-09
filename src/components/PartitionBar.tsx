@@ -84,14 +84,16 @@ export default function PartitionBar({
   const nonDeletedNotes = useMemo(() => notes.filter(n => !n.deleted), [notes]);
 
   // Recursively build tag directory up to 6 levels deep from independent catalog & tag map & fallback
-  const tagTree = useMemo(() => {
+  const { tagTree, allUniqueTags } = useMemo(() => {
     const root: TreeNode = { name: 'Root', fullPath: '', children: {}, count: 0 };
     
-    // Calculate tag association sets per active note
-    const noteTagAssociations: Record<string, Set<string>> = {};
+    // 1. O(N) Pass: Accumulate global unique tags and prefix count mapping
+    const uniqueTagsSet = new Set<string>(independentTags);
+    const tagCountMap = new Map<string, number>();
+
     for (const note of nonDeletedNotes) {
-      const tagsSet = new Set<string>();
-      
+      const noteUniqueTags = new Set<string>();
+
       // Fallback: extract hashtags from markdown content
       const content = note.content || '';
       const matches = content.match(/(^|\s)#([a-zA-Z0-9_\u4e00-\u9fa5/]+)/g);
@@ -99,29 +101,40 @@ export default function PartitionBar({
         matches.forEach(m => {
           const t = m.trim().substring(1);
           if (!t.endsWith('/') && t.length > 0) {
-            tagsSet.add(t);
+            noteUniqueTags.add(t);
+            uniqueTagsSet.add(t);
           }
         });
       }
-      
-      // Independent tags mapping
+
+      // Independent tags mapping associated with this note
       const indTags = noteTagsMap[note.id] || [];
       indTags.forEach(t => {
         if (t.length > 0) {
-          tagsSet.add(t);
+          noteUniqueTags.add(t);
+          uniqueTagsSet.add(t);
         }
       });
-      
-      noteTagAssociations[note.id] = tagsSet;
+
+      // Expand note tags into paths to deduplicate parent level count mapping
+      const prefixPaths = new Set<string>();
+      for (const tag of noteUniqueTags) {
+        const parts = tag.split('/');
+        let acc = '';
+        for (const p of parts) {
+          acc = acc ? `${acc}/${p}` : p;
+          prefixPaths.add(acc);
+        }
+      }
+
+      // Record occurrence
+      for (const prefix of prefixPaths) {
+        tagCountMap.set(prefix, (tagCountMap.get(prefix) || 0) + 1);
+      }
     }
 
-    // Combine all unique tags of both free-floating independent tags list & linked notes tags
-    const allUniqueTags = new Set<string>(independentTags);
-    Object.values(noteTagAssociations).forEach(set => {
-      set.forEach(t => allUniqueTags.add(t));
-    });
-
-    for (const fullTag of Array.from(allUniqueTags)) {
+    // 2. O(T) Pass: Build tree directly from all known tags & O(1) query counts
+    for (const fullTag of Array.from(uniqueTagsSet)) {
       const parts = fullTag.split('/');
       const cappedParts = parts.slice(0, 6); // STRICTLY up to 6 levels supported
       
@@ -137,32 +150,20 @@ export default function PartitionBar({
             name: part,
             fullPath: pathAccumulator,
             children: {},
-            count: 0
+            count: tagCountMap.get(pathAccumulator) || 0
           };
         }
-        
-        // Count how many notes are associated with this exact tag or subtag
-        let matchCount = 0;
-        nonDeletedNotes.forEach(note => {
-          const noteTags = noteTagAssociations[note.id];
-          if (noteTags) {
-            const hasMatch = Array.from(noteTags).some(t => t === pathAccumulator || t.startsWith(`${pathAccumulator}/`));
-            if (hasMatch) {
-              matchCount++;
-            }
-          }
-        });
-
-        current.children[part].count = matchCount;
         current = current.children[part];
       }
     }
-    return root;
+    
+    return { tagTree: root, allUniqueTags: Array.from(uniqueTagsSet) };
   }, [nonDeletedNotes, independentTags, noteTagsMap]);
 
   // Export structured nested tags list
   const exportTags = () => {
-    const tagList = independentTags.map(t => `#${t}`);
+    // Dynamically fully export ALL tags not just manually configured independent ones
+    const tagList = allUniqueTags.map(t => `#${t}`);
     import('../utils/export').then(({ universalExport }) => {
       universalExport(tagList.join('\n'), `sovereign_tags_catalog_${new Date().toISOString().slice(0,10)}.txt`, 'text/plain');
     });
