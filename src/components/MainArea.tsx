@@ -5,6 +5,7 @@ import { getLunarInfo } from '../utils/lunar';
 import Whiteboard from './Whiteboard';
 import Mindmap from './Mindmap';
 import { universalExport } from '../utils/export';
+import { getApiBaseUrl } from '../lib/api';
 import { 
   Layout, Eye, FileDown, EyeOff, Settings, Calendar as CalendarIcon, 
   Database, ChevronLeft, ChevronRight, X, Server, Sliders, Rocket, Terminal, Check, RefreshCw,
@@ -620,8 +621,13 @@ export default function MainArea({
                   <button 
                     onClick={async () => {
                       try {
-                        const res = await fetch('/notes/sync/force', { method: 'POST' });
-                        if (res.ok) alert('强制同步触发成功');
+                        const apiBase = getApiBaseUrl();
+                        const res = await fetch(`${apiBase}/notes/sync/force`, { method: 'POST' });
+                        if (res.ok) {
+                          alert('强制同步触发成功');
+                        } else {
+                          alert('同步失败，请检查本机代理节点。');
+                        }
                       } catch {
                         alert('无法连接到本地核心网络。');
                       }
@@ -778,19 +784,20 @@ export default function MainArea({
                     onClick={async () => {
                       setBackupStatus('正在尝试上传 FTP...');
                       try {
-                        const res = await fetch('/sync/ftp', {
+                        const apiBase = getApiBaseUrl();
+                        const res = await fetch(`${apiBase}/sync/ftp`, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify(ftpConfig)
                         });
                         const data = await res.json();
-                        if (res.ok) {
+                        if (res.ok && data.success) {
                           setBackupStatus('FTP 增量备份推送成功: ' + data.message);
                         } else {
-                          setBackupStatus('FTP 错误: ' + (data.error || '上传失败'));
+                          setBackupStatus('FTP 错误: ' + (data.message || '上传失败') + (data.error ? ` (${data.error})` : ''));
                         }
-                      } catch (err) {
-                        setBackupStatus('FTP 连接失败: 无法连接本地代理节点');
+                      } catch (err: any) {
+                        setBackupStatus('FTP 连接失败: 无法连接本地后台代理节点 (' + err.message + ')');
                       }
                     }}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold transition-all text-white border border-emerald-500"

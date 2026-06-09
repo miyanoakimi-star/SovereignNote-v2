@@ -213,6 +213,10 @@ export default function App() {
   }, [webdavConfig]);
 
   useEffect(() => {
+    safeStorage.setItem('sovereign_ftp', JSON.stringify(ftpConfig));
+  }, [ftpConfig]);
+
+  useEffect(() => {
     safeStorage.setItem('sovereign_custom_festivals', JSON.stringify(customFestivals));
   }, [customFestivals]);
 

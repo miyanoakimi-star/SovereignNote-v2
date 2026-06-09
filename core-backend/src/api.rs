@@ -33,13 +33,41 @@ async fn force_sync(
 async fn sync_to_ftp(
     State(pool): State<DbPool>,
     Json(config): Json<FtpConfig>,
-) -> Result<Json<String>, (StatusCode, String)> {
-    let notes = db::get_all_notes(&pool).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    let content = serde_json::to_vec(&notes).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let notes = db::get_all_notes(&pool).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "message": "读取数据库失败",
+                "error": e.to_string()
+            })),
+        )
+    })?;
+    
+    let content = serde_json::to_vec(&notes).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "message": "序列化数据失败",
+                "error": e.to_string()
+            })),
+        )
+    })?;
     
     match FtpStorageProvider::upload_sync(&config, content).await {
-        Ok(_) => Ok(Json("FTP Backup Successful".to_string())),
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, format!("FTP Error: {}", e))),
+        Ok(_) => Ok(Json(serde_json::json!({
+            "success": true,
+            "message": "FTP 备份推送成功"
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "message": e
+            })),
+        )),
     }
 }
 
