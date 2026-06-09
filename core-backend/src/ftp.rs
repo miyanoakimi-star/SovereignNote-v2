@@ -37,10 +37,26 @@ impl FtpStorageProvider {
         
         let path = format!("{}/sovereign_backup.json", config.path);
         
-        match ftp_stream.retr_as_buffer(&path).await {
-            Ok(cursor) => {
+        match ftp_stream.retr(&path).await {
+            Ok(mut data_stream) => {
+                use futures_util::io::AsyncReadExt;
+                let mut buffer = Vec::new();
+                if let Err(e) = data_stream.read_to_end(&mut buffer).await {
+                    let _ = ftp_stream.quit().await;
+                    return Err(e.to_string());
+                }
+                
+                // Drop data stream to close the channel
+                drop(data_stream);
+                
+                // Finalize download to receive the server response
+                if let Err(e) = ftp_stream.finalize_retr().await {
+                    let _ = ftp_stream.quit().await;
+                    return Err(e.to_string());
+                }
+                
                 let _ = ftp_stream.quit().await;
-                Ok(Some(cursor.into_inner()))
+                Ok(Some(buffer))
             }
             Err(e) => {
                 let _ = ftp_stream.quit().await;
