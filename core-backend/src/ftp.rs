@@ -37,7 +37,7 @@ impl FtpStorageProvider {
         
         let path = format!("{}/sovereign_backup.json", config.path);
         
-        match ftp_stream.retr_stream(&path).await {
+        match ftp_stream.retr_as_stream(&path).await {
             Ok(mut data_stream) => {
                 use futures_util::io::AsyncReadExt;
                 let mut buffer = Vec::new();
