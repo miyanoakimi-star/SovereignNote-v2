@@ -78,8 +78,27 @@ export default function App() {
     return saved ? JSON.parse(saved) : {};
   });
 
+  // Independent storage for tags (not stored inside the notes)
+  const [independentTags, setIndependentTags] = useState<string[]>(() => {
+    const saved = safeStorage.getItem('sovereign_independent_tags');
+    return saved ? JSON.parse(saved) : [
+      '生活',
+      '工作',
+      '工作/代码',
+      '工作/代码/React',
+      '个人/健康',
+      '个人/读书'
+    ];
+  });
+
+  const [noteTagsMap, setNoteTagsMap] = useState<Record<string, string[]>>(() => {
+    const saved = safeStorage.getItem('sovereign_note_tags_map');
+    return saved ? JSON.parse(saved) : {};
+  });
+
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
+  const [activeTool, setActiveTool] = useState<string>('releases');
 
   useEffect(() => {
     const handleTouch = () => {
@@ -220,6 +239,14 @@ export default function App() {
     safeStorage.setItem('sovereign_custom_festivals', JSON.stringify(customFestivals));
   }, [customFestivals]);
 
+  useEffect(() => {
+    safeStorage.setItem('sovereign_independent_tags', JSON.stringify(independentTags));
+  }, [independentTags]);
+
+  useEffect(() => {
+    safeStorage.setItem('sovereign_note_tags_map', JSON.stringify(noteTagsMap));
+  }, [noteTagsMap]);
+
   // 自动且具有防抖功能地将前台笔记同步至 Rust 本地 SQLite 数据库 (实现 LWW 融合)
   useEffect(() => {
     const timer = setTimeout(async () => {
@@ -303,6 +330,8 @@ export default function App() {
       webdavConfig,
       fontSizeLevel,
       customFestivals,
+      independentTags,
+      noteTagsMap,
       version: "1.0.0"
     };
     const jsonStr = JSON.stringify(data, null, 2);
@@ -339,6 +368,12 @@ export default function App() {
         }
         if (parsed.customFestivals) {
           setCustomFestivals(parsed.customFestivals);
+        }
+        if (parsed.independentTags && Array.isArray(parsed.independentTags)) {
+          setIndependentTags(parsed.independentTags);
+        }
+        if (parsed.noteTagsMap && typeof parsed.noteTagsMap === 'object') {
+          setNoteTagsMap(parsed.noteTagsMap);
         }
         alert("数据库同步备份导入成功！");
       } else {
@@ -453,6 +488,12 @@ export default function App() {
         handleExportDatabase={handleExportDatabase}
         handleImportDatabase={handleImportDatabase}
         handleImportNotesFromFiles={handleImportNotesFromFiles}
+        activeTool={activeTool}
+        setActiveTool={setActiveTool}
+        independentTags={independentTags}
+        setIndependentTags={setIndependentTags}
+        noteTagsMap={noteTagsMap}
+        setNoteTagsMap={setNoteTagsMap}
       />
 
       <MainArea 
@@ -484,6 +525,12 @@ export default function App() {
         setThemeMode={setThemeMode}
         deviceProfile={deviceProfile}
         applyDevicePreset={applyDevicePreset}
+        activeTool={activeTool}
+        setActiveTool={setActiveTool}
+        independentTags={independentTags}
+        setIndependentTags={setIndependentTags}
+        noteTagsMap={noteTagsMap}
+        setNoteTagsMap={setNoteTagsMap}
       />
     </div>
   );

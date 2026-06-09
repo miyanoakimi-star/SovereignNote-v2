@@ -27,6 +27,12 @@ interface PartitionBarProps {
   handleExportDatabase: () => void;
   handleImportDatabase: (jsonData: string) => void;
   handleImportNotesFromFiles: (files: FileList) => void;
+  activeTool: string;
+  setActiveTool: (tool: string) => void;
+  independentTags: string[];
+  setIndependentTags: (tags: string[]) => void;
+  noteTagsMap: Record<string, string[]>;
+  setNoteTagsMap: (map: Record<string, string[]>) => void;
 }
 
 interface TreeNode {
@@ -57,6 +63,12 @@ export default function PartitionBar({
   handleExportDatabase,
   handleImportDatabase,
   handleImportNotesFromFiles,
+  activeTool,
+  setActiveTool,
+  independentTags,
+  setIndependentTags,
+  noteTagsMap,
+  setNoteTagsMap,
 }: PartitionBarProps) {
   const [collapsedPaths, setCollapsedPaths] = useState<Record<string, boolean>>({});
   const [dragActive, setDragActive] = useState<boolean>(false);
@@ -71,55 +83,86 @@ export default function PartitionBar({
 
   const nonDeletedNotes = useMemo(() => notes.filter(n => !n.deleted), [notes]);
 
-  // Recursively build tag directory up to 6 levels deep from notes
+  // Recursively build tag directory up to 6 levels deep from independent catalog & tag map & fallback
   const tagTree = useMemo(() => {
     const root: TreeNode = { name: 'Root', fullPath: '', children: {}, count: 0 };
+    
+    // Calculate tag association sets per active note
+    const noteTagAssociations: Record<string, Set<string>> = {};
     for (const note of nonDeletedNotes) {
+      const tagsSet = new Set<string>();
+      
+      // Fallback: extract hashtags from markdown content
       const content = note.content || '';
       const matches = content.match(/(^|\s)#([a-zA-Z0-9_\u4e00-\u9fa5/]+)/g);
-      if (!matches) continue;
-
-      const uniqueTags = Array.from(new Set(
-        matches.map(m => m.trim().substring(1)).filter(t => !t.endsWith('/') && t.length > 0)
-      ));
-
-      for (const fullTag of uniqueTags) {
-        const parts = fullTag.split('/');
-        const cappedParts = parts.slice(0, 6); // STRICTLY up to 6 levels supported
-        
-        let current = root;
-        let pathAccumulator = '';
-
-        for (let i = 0; i < cappedParts.length; i++) {
-          const part = cappedParts[i];
-          pathAccumulator = pathAccumulator ? `${pathAccumulator}/${part}` : part;
-
-          if (!current.children[part]) {
-            current.children[part] = {
-              name: part,
-              fullPath: pathAccumulator,
-              children: {},
-              count: 0
-            };
+      if (matches) {
+        matches.forEach(m => {
+          const t = m.trim().substring(1);
+          if (!t.endsWith('/') && t.length > 0) {
+            tagsSet.add(t);
           }
-          current.children[part].count += 1;
-          current = current.children[part];
+        });
+      }
+      
+      // Independent tags mapping
+      const indTags = noteTagsMap[note.id] || [];
+      indTags.forEach(t => {
+        if (t.length > 0) {
+          tagsSet.add(t);
         }
+      });
+      
+      noteTagAssociations[note.id] = tagsSet;
+    }
+
+    // Combine all unique tags of both free-floating independent tags list & linked notes tags
+    const allUniqueTags = new Set<string>(independentTags);
+    Object.values(noteTagAssociations).forEach(set => {
+      set.forEach(t => allUniqueTags.add(t));
+    });
+
+    for (const fullTag of Array.from(allUniqueTags)) {
+      const parts = fullTag.split('/');
+      const cappedParts = parts.slice(0, 6); // STRICTLY up to 6 levels supported
+      
+      let current = root;
+      let pathAccumulator = '';
+
+      for (let i = 0; i < cappedParts.length; i++) {
+        const part = cappedParts[i];
+        pathAccumulator = pathAccumulator ? `${pathAccumulator}/${part}` : part;
+
+        if (!current.children[part]) {
+          current.children[part] = {
+            name: part,
+            fullPath: pathAccumulator,
+            children: {},
+            count: 0
+          };
+        }
+        
+        // Count how many notes are associated with this exact tag or subtag
+        let matchCount = 0;
+        nonDeletedNotes.forEach(note => {
+          const noteTags = noteTagAssociations[note.id];
+          if (noteTags) {
+            const hasMatch = Array.from(noteTags).some(t => t === pathAccumulator || t.startsWith(`${pathAccumulator}/`));
+            if (hasMatch) {
+              matchCount++;
+            }
+          }
+        });
+
+        current.children[part].count = matchCount;
+        current = current.children[part];
       }
     }
     return root;
-  }, [nonDeletedNotes]);
+  }, [nonDeletedNotes, independentTags, noteTagsMap]);
 
   // Export structured nested tags list
   const exportTags = () => {
-    const tagList: string[] = [];
-    const extractPaths = (node: TreeNode) => {
-      for (const child of Object.values(node.children)) {
-        tagList.push(`#${child.fullPath}`);
-        extractPaths(child);
-      }
-    };
-    extractPaths(tagTree);
+    const tagList = independentTags.map(t => `#${t}`);
     import('../utils/export').then(({ universalExport }) => {
       universalExport(tagList.join('\n'), `sovereign_tags_catalog_${new Date().toISOString().slice(0,10)}.txt`, 'text/plain');
     });
@@ -134,12 +177,10 @@ export default function PartitionBar({
        alert("未提取到合规的标签组合！请确保每个标签以 # 开始。");
        return;
     }
-    const cleanList = matches.map(m => m.trim());
-    const mockNoteTitle = "批量导入的标签包";
-    const mockNoteContent = `# 批量导入的标签包\n\n系统已检测并解析您导入的嵌套层级：\n\n${cleanList.join(' ')}\n\n(提示：此文章包含这些多层标签，若不再需要此笔记，后续可以通过在笔记内部编辑、修改具体内容来重构整体标签结构)`;
-    
-    handleCreateNote(mockNoteTitle, mockNoteContent);
-    alert(`成功批量引入并生成了 ${cleanList.length} 个多层嵌套标签！`);
+    const cleanList = matches.map(m => m.trim().substring(1));
+    const nextTags = Array.from(new Set([...independentTags, ...cleanList]));
+    setIndependentTags(nextTags);
+    alert(`成功批量引入并生成了 ${cleanList.length} 个独立的系统嵌套标签！`);
   };
 
   // Drag and drop for bulk importing files
@@ -236,16 +277,22 @@ export default function PartitionBar({
         note.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         note.content.toLowerCase().includes(searchQuery.toLowerCase());
       
-      // 2. Matches selected tag (including sub-paths)
+      // 2. Matches selected tag (including sub-paths, checking both content fallback and independent tag storage)
       let matchesTag = true;
       if (selectedTag) {
-        const matches = note.content.match(/(^|\s)#([a-zA-Z0-9_\u4e00-\u9fa5/]+)/g);
-        if (!matches) {
-          matchesTag = false;
-        } else {
-          const noteTags = matches.map(m => m.trim().substring(1));
-          matchesTag = noteTags.some(t => t === selectedTag || t.startsWith(`${selectedTag}/`));
+        const noteTagsSet = new Set<string>();
+        const content = note.content || '';
+        const matches = content.match(/(^|\s)#([a-zA-Z0-9_\u4e00-\u9fa5/]+)/g);
+        if (matches) {
+          matches.forEach(m => {
+            const t = m.trim().substring(1);
+            if (!t.endsWith('/') && t.length > 0) noteTagsSet.add(t);
+          });
         }
+        const indTags = noteTagsMap[note.id] || [];
+        indTags.forEach(t => noteTagsSet.add(t));
+
+        matchesTag = Array.from(noteTagsSet).some(t => t === selectedTag || t.startsWith(`${selectedTag}/`));
       }
 
       // 3. Matches folder
@@ -256,7 +303,7 @@ export default function PartitionBar({
       
       return matchesSearch && matchesTag && matchesFolder;
     }).sort((a, b) => b.updated_at - a.updated_at);
-  }, [nonDeletedNotes, searchQuery, selectedTag, selectedFolder]);
+  }, [nonDeletedNotes, searchQuery, selectedTag, selectedFolder, noteTagsMap]);
 
   return (
     <div className={`w-80 shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col overflow-hidden select-none ${!isOpen ? 'hidden' : ''}`}>
@@ -268,11 +315,13 @@ export default function PartitionBar({
           {navState === 'calendar' && <Calendar className="w-4 h-4 mr-2 text-emerald-400" />}
           {navState === 'settings' && <Sliders className="w-4 h-4 mr-2 text-sky-400" />}
           {navState === 'releases' && <Rocket className="w-4 h-4 mr-2 text-amber-400 animate-pulse" />}
+          {navState === 'tools' && <Rocket className="w-4 h-4 mr-2 text-amber-400 animate-pulse" />}
           {navState === 'notes' && '笔记列表'}
           {navState === 'tags' && '多级标签目录'}
           {navState === 'calendar' && '今日日程计划'}
           {navState === 'settings' && '系统管理'}
           {navState === 'releases' && '自动化部署中心'}
+          {navState === 'tools' && '系统小工具'}
         </h2>
         <button onClick={() => setIsOpen(false)} className="text-slate-500 hover:text-slate-300">
           <ChevronLeft className="w-4 h-4" />
@@ -381,18 +430,29 @@ export default function PartitionBar({
                         alert("请选定需要附加标签的笔记！");
                         return;
                       }
-                      const tagName = prompt("请输入需批量增设的标签名称 (例如: 日报/重要):");
+                      const tagName = prompt("请输入需批量增设的独立系统标签名称 (例如: 日报/重要):");
                       if (!tagName || !tagName.trim()) return;
                       const cleanTag = tagName.trim().replace(/^#+/, '');
+                      
+                      // Save to independent state
+                      if (!independentTags.includes(cleanTag)) {
+                        setIndependentTags([...independentTags, cleanTag]);
+                      }
+
+                      const updatedMap = { ...noteTagsMap };
                       selectedList.forEach(n => {
-                        const separator = n.content.endsWith(' ') || n.content.endsWith('\n') ? '' : ' ';
-                        updateNote(n.id, n.title, `${n.content}${separator}#${cleanTag}`, {});
+                        const currentTags = updatedMap[n.id] || [];
+                        if (!currentTags.includes(cleanTag)) {
+                          updatedMap[n.id] = [...currentTags, cleanTag];
+                        }
                       });
-                      alert(`已将 ${selectedList.length} 条笔记贴上标签 #${cleanTag}！`);
+                      setNoteTagsMap(updatedMap);
+                      
+                      alert(`已将 ${selectedList.length} 条笔记通过独立存储关联至标签 #${cleanTag}！`);
                       setSelectedNoteIds({});
                       setIsBatchMode(false);
                     }}
-                    className="py-1 bg-pink-650 hover:bg-pink-600 text-white font-bold rounded flex items-center justify-center gap-1"
+                    className="py-1 bg-pink-655 hover:bg-pink-600 text-white font-bold rounded flex items-center justify-center gap-1"
                     style={getDynamicFontSizeStyle(fontSizeLevel, 9)}
                   >
                     🏷️ 贴签
@@ -561,16 +621,21 @@ export default function PartitionBar({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          const tagName = prompt(`请输入要添加至笔记【${note.title}】的标签 (可使用 / 实现多级嵌套，如: 个人/备忘):`);
+                          const tagName = prompt(`请输入要添加至笔记【${note.title}】的独立系统标签 (支持多级嵌套，如: 个人/备忘):`);
                           if (tagName && tagName.trim()) {
                             const cleanTag = tagName.trim().replace(/^#+/, '');
-                            const separator = note.content.endsWith(' ') || note.content.endsWith('\n') ? '' : ' ';
-                            updateNote(note.id, note.title, `${note.content}${separator}#${cleanTag}`, {});
-                            alert(`已成功为笔记添加 #${cleanTag} 标签！`);
+                            if (!independentTags.includes(cleanTag)) {
+                              setIndependentTags([...independentTags, cleanTag]);
+                            }
+                            const currentTags = noteTagsMap[note.id] || [];
+                            if (!currentTags.includes(cleanTag)) {
+                              setNoteTagsMap({ ...noteTagsMap, [note.id]: [...currentTags, cleanTag] });
+                            }
+                            alert(`已通过独立存储成功为笔记添加 #${cleanTag} 标签！`);
                           }
                         }}
                         className="text-[9px] text-slate-500 hover:text-indigo-400 bg-slate-950/20 hover:bg-slate-950/45 px-1 py-0.2 rounded border border-slate-805 font-bold transition-all cursor-pointer inline-flex items-center gap-0.5"
-                        title="在此笔记列表直接快捷添加标签"
+                        title="在此笔记列表直接快捷添加状态标签"
                       >
                         + 贴标签
                       </button>
@@ -839,49 +904,173 @@ export default function PartitionBar({
         </div>
       )}
 
-      {/* GLOBAL AUTO RELEASE CONTROLS IN THE PARTITION BAR */}
-      {navState === 'releases' && (
+      {/* GLOBAL DISCOVERY TOOLS BOX IN SIDE BAR */}
+      {navState === 'tools' && (
         <div className="flex-1 flex flex-col p-4 overflow-y-auto space-y-4 animate-fade-in">
-          <div className="p-3 bg-indigo-950/20 border border-indigo-900/40 rounded-xl space-y-2">
-            <h3 className="text-xs font-bold text-indigo-400 flex items-center gap-1.5">
-              <Rocket className="w-3.5 h-3.5 animate-bounce" /> CI/CD 自动部署已就绪
-            </h3>
-            <p className="text-[10px] text-slate-400 leading-relaxed">
-              检测到内置 <code>.github/workflows/build.yml</code>。支持推送 <code>v*</code> 标签时自动编译 Windows 与 Android 客户端并全自动部署到 GitHub Releases 资产发布区。
-            </p>
+          {/* Tool Selector Tab Bar */}
+          <div className="grid grid-cols-3 gap-1 bg-slate-950/40 p-1 rounded-xl border border-slate-800/80">
+            <button
+              onClick={() => setActiveTool('releases')}
+              className={`py-2 rounded-lg text-[10px] font-bold text-center transition-all flex flex-col items-center justify-center gap-1 ${
+                activeTool === 'releases'
+                  ? 'bg-indigo-600 text-slate-100 shadow border border-indigo-505 font-extrabold shadow-sm'
+                  : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'
+              }`}
+            >
+              <Rocket className="w-3.5 h-3.5" />
+              <span>版本发布</span>
+            </button>
+            <button
+              onClick={() => setActiveTool('backup')}
+              className={`py-2 rounded-lg text-[10px] font-bold text-center transition-all flex flex-col items-center justify-center gap-1 ${
+                activeTool === 'backup'
+                  ? 'bg-indigo-600 text-slate-100 shadow border border-indigo-505 font-extrabold shadow-sm'
+                  : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'
+              }`}
+            >
+              <HardDrive className="w-3.5 h-3.5" />
+              <span>整库备份</span>
+            </button>
+            <button
+              onClick={() => setActiveTool('device')}
+              className={`py-2 rounded-lg text-[10px] font-bold text-center transition-all flex flex-col items-center justify-center gap-1 ${
+                activeTool === 'device'
+                  ? 'bg-indigo-600 text-slate-100 shadow border border-indigo-505 font-extrabold shadow-sm'
+                  : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'
+              }`}
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span>多端调试</span>
+            </button>
           </div>
 
-          <div className="space-y-1 bg-slate-950/40 p-3 rounded-lg border border-slate-800">
-            <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">监听触发规则</span>
-            <div className="flex items-center justify-between text-xs py-1">
-              <span className="font-mono text-slate-300">tags: ['v*']</span>
-              <span className="text-[9px] bg-emerald-600/10 text-emerald-400 border border-emerald-500/10 px-1.5 py-0.2 rounded-full font-bold">已绑定</span>
+          <div className="border-t border-slate-800/50 pt-1 shrink-0"></div>
+
+          {/* Render active tool panel inside the sub-sidebar */}
+          {activeTool === 'releases' && (
+            <div className="space-y-4 animate-fade-in">
+              <div className="p-3 bg-indigo-950/20 border border-indigo-900/40 rounded-xl space-y-2">
+                <h3 className="text-xs font-bold text-indigo-400 flex items-center gap-1.5">
+                  <Rocket className="w-3.5 h-3.5 animate-bounce" /> CI/CD 自动部署已就绪
+                </h3>
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  检测到内置 <code>.github/workflows/build.yml</code>。推送 <code>v*</code> 标签自动编译 Windows / Android 独立客户端。
+                </p>
+              </div>
+
+              <div className="space-y-1 bg-slate-950/40 p-3 rounded-lg border border-slate-800">
+                <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono">触发规则</span>
+                <div className="flex items-center justify-between text-xs py-1">
+                  <span className="font-mono text-slate-300">tags: ['v*']</span>
+                  <span className="text-[9px] bg-emerald-600/10 text-emerald-400 border border-emerald-500/10 px-1.5 py-0.2 rounded-full font-bold">已绑定</span>
+                </div>
+              </div>
+
+              <div className="space-y-1 bg-slate-950/40 p-3 rounded-lg border border-slate-800">
+                <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono">目标平台</span>
+                <div className="text-[10px] text-slate-300 space-y-1.5 pt-1 font-mono">
+                  <div className="flex justify-between">
+                    <span>• Windows Desktop (x64)</span>
+                    <span className="text-slate-500">MSVC 编译</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>• Android Device (APK)</span>
+                    <span className="text-slate-500">cargo-apk</span>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
 
-          <div className="space-y-1 bg-slate-950/40 p-3 rounded-lg border border-slate-800">
-            <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">自动构建平台</span>
-            <div className="text-[10px] text-slate-300 space-y-1.5 pt-1 font-mono">
-              <div className="flex justify-between">
-                <span>• Windows x64 App</span>
-                <span className="text-slate-500">MSVC 编译</span>
+          {activeTool === 'backup' && (
+            <div className="space-y-4 animate-fade-in">
+              <div className="space-y-2">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1">
+                  <HardDrive className="w-3 h-3 text-indigo-400" /> 数据导入导出 (LWW共识)
+                </span>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={handleExportDatabase}
+                    className="flex-1 py-1.5 px-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] rounded flex items-center justify-center gap-1 shadow transition-colors"
+                  >
+                    <Download className="w-3 h-3" /> 导出
+                  </button>
+                  <label className="flex-1 py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-[10px] rounded flex items-center justify-center gap-1 cursor-pointer transition-colors">
+                    <Upload className="w-3 h-3" /> 导入
+                    <input 
+                      type="file" 
+                      accept=".json" 
+                      className="hidden" 
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const text = await file.text();
+                          handleImportDatabase(text);
+                        }
+                      }} 
+                    />
+                  </label>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span>• Windows ia32 App</span>
-                <span className="text-slate-500">微软编译器</span>
-              </div>
-              <div className="flex justify-between">
-                <span>• Android APK Store</span>
-                <span className="text-slate-500">cargo-apk 工具</span>
+
+              <div className="space-y-2 pt-1 border-t border-slate-800/40">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1">
+                  文件夹快速扫描 & 批量导入
+                </span>
+                <div 
+                  onDragEnter={handleDrag}
+                  onDragOver={handleDrag}
+                  onDragLeave={handleDrag}
+                  onDrop={handleDrop}
+                  className={`border border-dashed rounded-xl p-3 text-center cursor-pointer transition-all ${
+                    dragActive 
+                      ? 'border-indigo-500 bg-indigo-500/10' 
+                      : 'border-slate-850 bg-slate-950/20 hover:border-indigo-500/40'
+                  }`}
+                >
+                  <Upload className="w-5 h-5 mx-auto mb-1 text-slate-500 opacity-60" />
+                  <p className="text-[9px] text-slate-300 font-bold">拖拽本地文件到此处导入</p>
+                  <label className="mt-1.5 inline-block px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[8px] font-bold text-indigo-400 rounded cursor-pointer">
+                    浏览文件
+                    <input 
+                      type="file" 
+                      multiple 
+                      accept=".md,.txt,.html,.json" 
+                      className="hidden" 
+                      onChange={(e) => {
+                        if (e.target.files) handleImportNotesFromFiles(e.target.files);
+                      }} 
+                    />
+                  </label>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
-          <div className="bg-slate-950/20 border border-slate-850 p-3 rounded-lg space-y-2 text-center">
-            <p className="text-[10px] text-slate-500 leading-relaxed">
-              需要切换到右侧主视图进行版本发布配置、编写变更日志、更新 GitHub Actions 及本地命令行手动/全自动发布控指。
-            </p>
-          </div>
+          {activeTool === 'device' && (
+            <div className="space-y-4 animate-fade-in text-slate-300">
+              <div className="p-3 bg-slate-950/40 rounded-xl border border-slate-800 space-y-3">
+                <h3 className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">字号缩放调试</h3>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-slate-500">小</span>
+                  <input 
+                    type="range" 
+                    min="1" 
+                    max="5" 
+                    value={fontSizeLevel} 
+                    onChange={(e) => setFontSizeLevel(parseInt(e.target.value, 10))}
+                    className="w-32 accent-indigo-500 cursor-pointer h-1 bg-slate-800 rounded-lg"
+                  />
+                  <span className="text-[10px] text-indigo-400 font-bold">{fontSizeLevel}级</span>
+                </div>
+              </div>
+              <div className="p-3 bg-slate-950/20 border border-slate-850 rounded-lg text-center">
+                <p className="text-[10px] text-slate-500 leading-relaxed">
+                  多端设备模拟预设已位于左边栏主面板中。您也可以直接在侧边栏底端极速切换分辨率，感受铁血级自适应高分排版对齐。
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

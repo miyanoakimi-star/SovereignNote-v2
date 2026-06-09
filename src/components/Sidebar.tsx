@@ -78,7 +78,7 @@ export default function Sidebar({
         <div className="pt-3 pb-1 px-3">
           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">🛠️ 小工具</span>
         </div>
-        <NavItem active={navState === 'releases'} onClick={() => setNavState('releases')} icon={<Rocket className="w-4 h-4 text-amber-400 animate-pulse" />} label="版本发布 (Releases)" />
+        <NavItem active={navState === 'tools'} onClick={() => setNavState('tools')} icon={<Rocket className="w-4 h-4 text-amber-400 animate-pulse" />} label="系统工具箱 (Tools)" />
 
         {/* 🖥️ 多端环境与自适应 (Moved to here: below Tools and above Settings) */}
         <div className="my-2 px-1">

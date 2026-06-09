@@ -8,7 +8,7 @@ import { universalExport } from '../utils/export';
 import { getApiBaseUrl } from '../lib/api';
 import { 
   Layout, Eye, FileDown, EyeOff, Settings, Calendar as CalendarIcon, 
-  Database, ChevronLeft, ChevronRight, X, Server, Sliders, Rocket, Terminal, Check, RefreshCw,
+  Database, ChevronLeft, ChevronRight, X, Server, Sliders, Rocket, Terminal, Check, RefreshCw, Upload,
   Bold, Italic, Code, Link, Image, List, ListOrdered, Quote, Table, CheckSquare
 } from 'lucide-react';
 
@@ -41,6 +41,12 @@ interface MainAreaProps {
   setThemeMode: (mode: 'day' | 'night') => void;
   deviceProfile: string;
   applyDevicePreset: (profile: string) => void;
+  activeTool: string;
+  setActiveTool: (tool: string) => void;
+  independentTags: string[];
+  setIndependentTags: (tags: string[]) => void;
+  noteTagsMap: Record<string, string[]>;
+  setNoteTagsMap: (map: Record<string, string[]>) => void;
 }
 
 export default function MainArea({
@@ -72,6 +78,12 @@ export default function MainArea({
   setThemeMode,
   deviceProfile,
   applyDevicePreset,
+  activeTool,
+  setActiveTool,
+  independentTags,
+  setIndependentTags,
+  noteTagsMap,
+  setNoteTagsMap,
 }: MainAreaProps) {
   const [editorMode, setEditorMode] = useState<'edit' | 'preview' | 'split'>('split');
   const [isToolbarOpen, setIsToolbarOpen] = useState(true);
@@ -245,7 +257,40 @@ export default function MainArea({
   const handleFormat = (type: string) => {
     if (!activeNote) return;
     const textarea = document.getElementById('note-editor-textarea') as HTMLTextAreaElement;
-    if (!textarea) return;
+    
+    if (!textarea) {
+      if (type === 'tag') {
+        const tagName = prompt("请输入要添加的独立存储标签：");
+        if (tagName && tagName.trim()) {
+          const cleanTag = tagName.trim().replace(/^#+/, '');
+          const currentTags = noteTagsMap[activeNote.id] || [];
+          if (!currentTags.includes(cleanTag)) {
+            const updatedTags = [...currentTags, cleanTag];
+            setNoteTagsMap({ ...noteTagsMap, [activeNote.id]: updatedTags });
+            if (!independentTags.includes(cleanTag)) {
+              setIndependentTags([...independentTags, cleanTag]);
+            }
+          }
+        }
+      } else if (type === 'calendar') {
+        const dateStr = prompt("请输入要联动的特定日期 (格式: YYYY-MM-DD)，留空则使用今天：", new Date().toISOString().slice(0, 10));
+        if (dateStr !== null) {
+          const cleanDate = dateStr.trim() || new Date().toISOString().slice(0, 10);
+          if (/^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+            const currentTags = noteTagsMap[activeNote.id] || [];
+            const tagForDate = `#${cleanDate}`;
+            if (!currentTags.includes(tagForDate)) {
+              const updatedTags = [...currentTags, tagForDate];
+              setNoteTagsMap({ ...noteTagsMap, [activeNote.id]: updatedTags });
+            }
+            alert(`已成功联动至日期：${cleanDate}`);
+          } else {
+            alert("日期格式不正确，需为 YYYY-MM-DD 格式");
+          }
+        }
+      }
+      return;
+    }
 
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
@@ -452,12 +497,20 @@ export default function MainArea({
     return customEvents.filter(e => e.date === selectedCalendarDate);
   }, [customEvents, selectedCalendarDate]);
 
-  // Auto hash-linked notes list (notes containing `#YYYY-MM-DD`)
+  // Auto hash-linked notes list (notes containing `#YYYY-MM-DD` or linked via independent noteTagsMap)
   const activeDateLinkedNotes = useMemo(() => {
     if (!selectedCalendarDate) return [];
     const hashTag = '#' + selectedCalendarDate;
-    return notes.filter(n => !n.deleted && n.content.includes(hashTag));
-  }, [notes, selectedCalendarDate]);
+    return notes.filter(n => {
+      if (n.deleted) return false;
+      const contentIncludes = n.content ? n.content.includes(hashTag) : false;
+      const mapIncludes = noteTagsMap[n.id]?.some(tag => {
+        const cleanTag = tag.startsWith('#') ? tag : '#' + tag;
+        return cleanTag === hashTag;
+      }) || false;
+      return contentIncludes || mapIncludes;
+    });
+  }, [notes, selectedCalendarDate, noteTagsMap]);
 
   // SYSTEM SETTINGS SUB CARD
   if (navState === 'settings') {
@@ -982,8 +1035,8 @@ export default function MainArea({
     );
   }
 
-  // AUTOMATIC RELEASES MANAGEMENT BOARD (CI/CD HUB)
-  if (navState === 'releases') {
+  // COMPREHENSIVE MULTI-TOOL INSTRUMENT INTERFACE
+  if (navState === 'tools') {
     const handleScannerGenerateChangelog = () => {
       const activeNotes = notes.filter(n => !n.deleted);
       const noteCount = activeNotes.length;
@@ -1118,18 +1171,55 @@ jobs:
     };
 
     return (
-      <div className="flex-1 flex flex-col bg-slate-900 border-l border-slate-800 text-slate-200 overflow-y-auto w-full select-none pb-16 animate-fade-in">
-        <div className="h-14 px-8 border-b border-slate-800 flex items-center justify-between shrink-0 bg-slate-950/20">
-          <div className="flex items-center">
-            <Rocket className="w-5 h-5 mr-3 text-amber-500 animate-pulse" />
-            <span className="font-bold text-slate-100">Release 自动发布与部署中心</span>
+      <div className="flex-1 flex flex-col bg-slate-900 border-l border-slate-800 text-slate-200 overflow-hidden w-full select-none">
+        {/* HEADER BAR FOR SYSTEM TOOLS */}
+        <div className="h-14 px-8 border-b border-slate-800 flex items-center justify-between shrink-0 bg-slate-950/40">
+          <div className="flex items-center space-x-1.5">
+            <Rocket className="w-5 h-5 mr-1 text-amber-400 animate-pulse" />
+            <span className="text-sm font-bold text-slate-100 font-sans">工具箱系统面板</span>
+            {activeTool === 'releases' && <span className="text-xs text-slate-500 font-mono bg-slate-950/80 px-2 py-0.5 rounded border border-slate-800/60 ml-2 font-medium">/ 存储分发与 CI/CD 自动部署</span>}
+            {activeTool === 'backup' && <span className="text-xs text-slate-500 font-mono bg-slate-950/80 px-2 py-0.5 rounded border border-slate-800/60 ml-2 font-medium">/ 状态数据库快照备份</span>}
+            {activeTool === 'device' && <span className="text-xs text-slate-500 font-mono bg-slate-950/80 px-2 py-0.5 rounded border border-slate-800/60 ml-2 font-medium">/ 多自适应设备适配器</span>}
           </div>
-          <span className="text-[10px] bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 px-3 py-1 rounded-full font-bold">
-            💡 状态: 监听就绪 (Idle)
-          </span>
+          
+          <div className="flex gap-1 bg-slate-950 p-1 border border-slate-800 rounded-xl shrink-0">
+            <button
+              onClick={() => setActiveTool('releases')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                activeTool === 'releases'
+                  ? 'bg-indigo-650 text-white font-extrabold shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              🚀 版本发布
+            </button>
+            <button
+              onClick={() => setActiveTool('backup')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                activeTool === 'backup'
+                  ? 'bg-indigo-650 text-white font-extrabold shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              💾 整库快照
+            </button>
+            <button
+              onClick={() => setActiveTool('device')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                activeTool === 'device'
+                  ? 'bg-indigo-650 text-white font-extrabold shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              🖥️ 多端自适应
+            </button>
+          </div>
         </div>
 
-        <div className="p-8 max-w-4xl space-y-6 mx-auto w-full">
+        <div className="flex-1 overflow-y-auto w-full pb-16">
+
+          {activeTool === 'releases' && (
+            <div className="p-8 max-w-4xl space-y-6 mx-auto w-full animate-fade-in">
           {/* TOP CARD DETAILED DESCRIPTION */}
           <div className="bg-slate-950/40 border border-slate-800 p-6 rounded-2xl space-y-3">
             <h2 className="text-sm font-bold text-indigo-300 flex items-center gap-2">
@@ -1289,6 +1379,185 @@ jobs:
               </div>
             </div>
           </div>
+        </div>
+          )}
+
+          {activeTool === 'backup' && (
+            <div className="p-8 max-w-4xl space-y-6 mx-auto w-full animate-fade-in font-sans">
+              <div className="bg-slate-950/40 border border-slate-800 p-6 rounded-2xl space-y-3 font-sans">
+                <h2 className="text-sm font-bold text-indigo-300 flex items-center gap-2">
+                  <Database className="w-5 h-5 text-indigo-400" />
+                  <span>分布式极客容灾备份 & 云端互联同步</span>
+                </h2>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  作为一款主打“主权自治”的笔记系统，我们提供免受任何商业云约束的多端自部署及点对点共识数据备份。您可以直接导出完整的 LWW-Element-Set 副本快照，或配置符合 WebDAV / FTP 规范的中继节点进行网络级多端冷/热实时云同步。
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 font-sans">
+                {/* BACKUP DATABASE CARD */}
+                <div className="space-y-4">
+                  <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 font-mono">
+                    📦 状态快照整库归档
+                  </h2>
+                  <div className="p-5 bg-slate-850/40 rounded-xl border border-slate-800 space-y-4">
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      将当前所有的归档文章内容、定制多级标签目录树及所有的定制时钟日程合成为单个纯静态 <code>.json</code> 配置：
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button 
+                        onClick={handleExportDatabase}
+                        className="py-3 px-4 bg-indigo-650 hover:bg-indigo-600 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer"
+                      >
+                        <FileDown className="w-4 h-4" /> 导出整库快照
+                      </button>
+                      <label 
+                        className="py-3 px-4 bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-colors text-center"
+                      >
+                        <Upload className="w-4 h-4 inline" /> 导入整库快照
+                        <input 
+                          type="file" 
+                          accept=".json" 
+                          className="hidden" 
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const text = await file.text();
+                              handleImportDatabase(text);
+                            }
+                          }} 
+                        />
+                      </label>
+                    </div>
+                    <div className="p-3.5 bg-slate-950/60 rounded-lg border border-slate-900 text-[10px] text-slate-500 space-y-1 font-mono">
+                      <div className="flex justify-between"><span>归档笔记数:</span><span>{notes.filter(n=>!n.deleted).length} 篇</span></div>
+                      <div className="flex justify-between"><span>定制日程树:</span><span>{customEvents.length} 个</span></div>
+                      <div className="flex justify-between"><span>共识合并层:</span><span className="text-emerald-500 font-bold">LWW-Element-Set</span></div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* FTP SYNC CONTROLLER CARD */}
+                <div className="space-y-4">
+                  <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 font-mono">
+                    ☁️ WebDAV 与 FTP 分布式云链接
+                  </h2>
+                  <div className="p-5 bg-slate-850/40 rounded-xl border border-slate-800 space-y-4">
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      直接将状态套包存储至符合标准的自建私有云（例如坚果云、Synology 群晖 WebDAV / FTP 服务器）。您可以更改 WebDAV 账号与 FTP 端口以完成云端互联。
+                    </p>
+                    <div className="flex flex-col gap-2.5">
+                      <div className="flex gap-2 font-mono">
+                        <div className="flex-1 bg-slate-950/40 border border-slate-800 p-2.5 rounded-lg flex items-center justify-between text-[11px] text-slate-400">
+                          <span>WebDAV: {webdavConfig?.url ? "已配置" : "未配置"}</span>
+                        </div>
+                        <div className="flex-1 bg-slate-950/40 border border-slate-800 p-2.5 rounded-lg flex items-center justify-between text-[11px] text-slate-400">
+                          <span>FTP 服务: {ftpConfig?.host ? "已配置" : "未配置"}</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setNavState('settings');
+                        }}
+                        className="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-indigo-400 font-bold text-xs border border-slate-700 rounded-xl transition-all cursor-pointer"
+                      >
+                        ⚙️ 前往系统设置配置 WebDAV 极客密钥
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTool === 'device' && (
+            <div className="p-8 max-w-4xl space-y-6 mx-auto w-full animate-fade-in font-sans">
+              <div className="bg-slate-950/40 border border-slate-800 p-6 rounded-2xl space-y-3">
+                <h2 className="text-sm font-bold text-indigo-300 flex items-center gap-2">
+                  <Server className="w-5 h-5 text-indigo-400" />
+                  <span>多端真机视口自适应排版检测仿真器</span>
+                </h2>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  系统采用高自适应的 Fluid Grid Layout 响应式像素格栅对齐，确保文字在从手表、掌机到折叠屏、4K带鱼屏等各类极端高dpi设备上保持一致的对称排版。
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* SCALE LEVEL ADJUST CARD */}
+                <div className="space-y-4">
+                  <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 font-mono">
+                    📏 界面像素格栅与字重缩放
+                  </h2>
+                  <div className="p-5 bg-slate-850/40 rounded-xl border border-slate-800 space-y-5">
+                    <div className="space-y-2 font-sans">
+                      <div className="flex justify-between items-center text-xs font-bold">
+                        <span className="text-slate-300">全局字体大小级度</span>
+                        <span className="text-indigo-400">{fontSizeLevel} 阶 (范围 1-5 级)</span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="1" 
+                        max="5" 
+                        value={fontSizeLevel} 
+                        onChange={(e) => setFontSizeLevel(parseInt(e.target.value, 10))}
+                        className="w-full h-1.5 accent-indigo-500 bg-slate-950 rounded-lg cursor-pointer"
+                      />
+                      <p className="text-[10px] text-slate-500/80">此拉条将直接对跨页侧边栏多层笔记目录、日程表格、文章阅读面板进行重度视网膜调节。</p>
+                    </div>
+
+                    <div className="space-y-2 pt-2 border-t border-slate-800/40 font-sans">
+                      <div className="flex justify-between items-center text-xs font-bold font-sans">
+                        <span className="text-slate-300">界面整体缩放比例 (CSS Matrix Scale)</span>
+                        <span className="text-indigo-400">{(uiScale * 100).toFixed(0)}%</span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="0.75" 
+                        max="1.25" 
+                        step="0.05"
+                        value={uiScale} 
+                        onChange={(e) => setUiScale && setUiScale(parseFloat(e.target.value))}
+                        className="w-full h-1.5 accent-indigo-500 bg-slate-950 rounded-lg cursor-pointer"
+                      />
+                      <p className="text-[10px] text-slate-500/80">此缩放由网页核心 DOM Matrix 引擎驱动。适合对更低物理分辨率的电子墨水屏等设备完成抗疲劳间距压缩。</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* PRESET EMULATOR STAT COORDS CARD */}
+                <div className="space-y-4">
+                  <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 font-mono">
+                    🖥️ 真机模拟类型切片 (Active Preset)
+                  </h2>
+                  <div className="p-5 bg-slate-850/40 rounded-xl border border-slate-800 space-y-4">
+                    <p className="text-xs text-slate-400 font-sans">
+                      快速对齐以下常见真机的视窗像素比例，通过调整宽度缩放对排版细节及侧边抽屉重叠状态进行全面视检：
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                      {[
+                        { title: '💻 桌面工作区 (Notebook)', profile: 'notebook' },
+                        { title: '平板尺寸 (Tablet Pro)', profile: 'tablet' },
+                        { title: '📲 纵向智能手机 (Large Screen)', profile: 'phone' },
+                        { title: '⌚ 极微边缘腕载 (Small Wrist)', profile: 'wearable' }
+                      ].map((p, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => applyDevicePreset(p.profile)}
+                          className={`p-3 rounded-lg border text-left transition-all cursor-pointer ${
+                            deviceProfile === p.profile
+                              ? 'bg-indigo-650 text-white font-extrabold border-indigo-500 shadow-sm'
+                              : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                          }`}
+                        >
+                          {p.title}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1946,6 +2215,62 @@ jobs:
         </div>
       )}
 
+      {/* INDEPENDENT METADATA PANEL (TAGS & DATE LINKAGES) */}
+      <div className="px-6 py-2 bg-slate-950/20 border-b border-slate-800/50 flex flex-wrap items-center justify-between text-xs gap-3">
+        {/* Left segment: Active Tags */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wide">
+            🏷️ 独立存储标签:
+          </span>
+          {(() => {
+            const currentTags = noteTagsMap[activeNote.id] || [];
+            if (currentTags.length === 0) {
+              return <span className="text-[10px] text-slate-600 italic">暂无独立标签</span>;
+            }
+            return currentTags.map(tag => {
+              const isDate = tag.startsWith('#') && /^\d{4}-\d{2}-\d{2}$/.test(tag.substring(1));
+              return (
+                <span 
+                  key={tag} 
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${isDate ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-pink-500/10 text-pink-400 border border-pink-500/20'}`}
+                >
+                  {tag.startsWith('#') ? tag : `#${tag}`}
+                  <button 
+                    onClick={() => {
+                      const updatedTags = currentTags.filter(t => t !== tag);
+                      setNoteTagsMap({ ...noteTagsMap, [activeNote.id]: updatedTags });
+                    }}
+                    className="hover:bg-slate-800 rounded px-1 text-[10px] text-slate-500 hover:text-white cursor-pointer"
+                    title="移除标签"
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            });
+          })()}
+        </div>
+
+        {/* Right segment: Actions/Add inline */}
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => handleFormat('tag')}
+            className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold text-[10px] rounded transition-all flex items-center gap-1 cursor-pointer"
+            title="添加独立标签"
+          >
+            + 贴标签
+          </button>
+          
+          <button
+            onClick={() => handleFormat('calendar')}
+            className="px-2 py-1 bg-slate-800 hover:bg-slate-750 text-slate-300 font-bold text-[10px] rounded transition-all flex items-center gap-1 cursor-pointer"
+            title="联动特定日期"
+          >
+            📅 联动日期
+          </button>
+        </div>
+      </div>
+
       {/* WORKSPACE AREA SCALABLE BY FONT CLASSES */}
       <div className="flex-1 flex overflow-hidden">
         {activeNote.type === 'whiteboard' ? (
@@ -1958,6 +2283,7 @@ jobs:
           <Mindmap 
             data={activeNote.mindmapData} 
             onChange={(data) => handleNoteChange(activeNote.title, activeNote.content, { mindmapData: data })}
+            title={activeNote.title}
           />
         ) : (
           <>
