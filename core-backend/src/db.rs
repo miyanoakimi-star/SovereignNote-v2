@@ -14,6 +14,14 @@ pub struct Note {
     pub deleted: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SyncLog {
+    pub id: Option<i64>,
+    pub timestamp: String,
+    pub level: String,
+    pub message: String,
+}
+
 pub type DbPool = Pool<SqliteConnectionManager>;
 
 pub fn init_db<P: AsRef<Path>>(db_path: P) -> DbPool {
@@ -39,7 +47,64 @@ pub fn init_db<P: AsRef<Path>>(db_path: P) -> DbPool {
     )
     .expect("Failed to initialize database tables");
 
+    // 初始化 sync_logs 数据库表
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sync_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            level TEXT NOT NULL,
+            message TEXT NOT NULL
+        )",
+        [],
+    )
+    .expect("Failed to initialize sync_logs table");
+
     pool
+}
+
+pub fn add_sync_log(pool: &DbPool, level: &str, message: &str) -> Result<(), rusqlite::Error> {
+    let conn = pool.get().map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    conn.execute(
+        "INSERT INTO sync_logs (timestamp, level, message) VALUES (?1, ?2, ?3)",
+        params![timestamp, level, message],
+    )?;
+
+    // 限制最近的1000条，循环保留最新
+    conn.execute(
+        "DELETE FROM sync_logs WHERE id NOT IN (
+            SELECT id FROM sync_logs ORDER BY id DESC LIMIT 1000
+        )",
+        [],
+    )?;
+
+    Ok(())
+}
+
+pub fn get_sync_logs(pool: &DbPool) -> Result<Vec<SyncLog>, rusqlite::Error> {
+    let conn = pool.get().map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    let mut stmt = conn.prepare("SELECT id, timestamp, level, message FROM sync_logs ORDER BY id DESC")?;
+    let logs_iter = stmt.query_map([], |row| {
+        Ok(SyncLog {
+            id: Some(row.get(0)?),
+            timestamp: row.get(1)?,
+            level: row.get(2)?,
+            message: row.get(3)?,
+        })
+    })?;
+
+    let mut logs = Vec::new();
+    for log in logs_iter {
+        logs.push(log?);
+    }
+    Ok(logs)
+}
+
+pub fn clear_sync_logs(pool: &DbPool) -> Result<(), rusqlite::Error> {
+    let conn = pool.get().map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    conn.execute("DELETE FROM sync_logs", [])?;
+    Ok(())
 }
 
 pub fn get_all_notes(pool: &DbPool) -> Result<Vec<Note>, rusqlite::Error> {

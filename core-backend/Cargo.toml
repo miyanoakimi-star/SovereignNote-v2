@@ -29,3 +29,4 @@ futures-util = { version = "0.3", default-features = false, features = ["std", "
 uuid = { version = "1.8", features = ["v4"] }
 rust-embed = "8.2.0"
 mime_guess = "2.0.4"
+chrono = "0.4"

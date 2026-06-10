@@ -95,6 +95,66 @@ export default function MainArea({
   const [backupStatus, setBackupStatus] = useState<string>('');
   const [activeSettingsTab, setActiveSettingsTab] = useState<'ui' | 'sync'>('ui');
 
+  // Real SQLite persistent sync logging state
+  const [realSyncLogs, setRealSyncLogs] = useState<{ id?: number; timestamp: string; level: string; message: string }[]>([]);
+
+  const fetchRealSyncLogs = async () => {
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/sync/logs`);
+      if (res.ok) {
+        const data = await res.json();
+        setRealSyncLogs(data);
+      }
+    } catch (e) {
+      console.error("Failed to fetch real sync logs", e);
+    }
+  };
+
+  const clearRealSyncLogs = async () => {
+    if (confirm('您确定要彻底清空数据库中所有的同步诊断日志吗？此操作无法恢复。')) {
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/sync/logs`, { method: 'DELETE' });
+        if (res.ok) {
+          fetchRealSyncLogs();
+        }
+      } catch (e) {
+        console.error("Failed to clear sync logs", e);
+      }
+    }
+  };
+
+  const exportRealSyncLogs = () => {
+    if (realSyncLogs.length === 0) {
+      alert("没有同步日志可以导出。");
+      return;
+    }
+    const logText = realSyncLogs
+      .map(log => `[${log.timestamp}] [${log.level}] ${log.message}`)
+      .join("\n");
+    universalExport(logText, `sovereign_sync_logs_${Date.now()}.txt`, "text/plain");
+  };
+
+  const copySyncLogsToClipboard = () => {
+    if (realSyncLogs.length === 0) {
+      alert("当前没有日志需要复制。");
+      return;
+    }
+    const logText = realSyncLogs
+      .map(log => `[${log.timestamp}] [${log.level}] ${log.message}`)
+      .join("\n");
+    navigator.clipboard.writeText(logText).then(() => {
+      alert("同步诊断日志已成功复制到剪贴板！");
+    }).catch(err => {
+      alert("复制失败: " + err);
+    });
+  };
+
+  useEffect(() => {
+    if (activeSettingsTab === 'sync') {
+      fetchRealSyncLogs();
+    }
+  }, [activeSettingsTab]);
+
   // Calendar Year/Month switching state: focusing on May & June 2026
   const [calYear, setCalYear] = useState<number>(2026);
   const [calMonth, setCalMonth] = useState<number>(5);
@@ -782,6 +842,7 @@ export default function MainArea({
                             const res = await fetch(`${apiBase}/notes/sync/force`, { method: 'POST' });
                             if (res.ok) {
                               alert('强制同步触发成功');
+                              fetchRealSyncLogs();
                             } else {
                               alert('同步失败，请检查本机代理节点。');
                             }
@@ -883,7 +944,7 @@ export default function MainArea({
                     )}
                   </div>
                   {backupStatus && (
-                    <div className="text-xs text-emerald-400 font-semibold bg-emerald-900/10 p-2.5 rounded border border-emerald-500/15">{backupStatus}</div>
+                    <div className="text-xs text-emerald-400 font-semibold bg-emerald-900/15 p-2.5 rounded border border-emerald-500/15">{backupStatus}</div>
                   )}
                 </div>
 
@@ -901,7 +962,7 @@ export default function MainArea({
                       <div className="space-y-1">
                         <label className="text-xs text-slate-400 font-bold">FTP 主机和端口</label>
                         <input 
-                          className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
+                          className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none animate-none" 
                           value={ftpConfig.host} 
                           onChange={(e) => setFtpConfig({ ...ftpConfig, host: e.target.value })}
                           placeholder="192.168.1.100:21" 
@@ -910,7 +971,7 @@ export default function MainArea({
                       <div className="space-y-1">
                         <label className="text-xs text-slate-400 font-bold">同步目录路径</label>
                         <input 
-                          className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
+                          className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none animate-none" 
                           value={ftpConfig.path} 
                           onChange={(e) => setFtpConfig({ ...ftpConfig, path: e.target.value })}
                           placeholder="/Backup/Notes" 
@@ -919,7 +980,7 @@ export default function MainArea({
                       <div className="space-y-1">
                         <label className="text-xs text-slate-400 font-bold">FTP 用户名</label>
                         <input 
-                          className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
+                          className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none animate-none" 
                           value={ftpConfig.user} 
                           onChange={(e) => setFtpConfig({ ...ftpConfig, user: e.target.value })}
                           placeholder="admin" 
@@ -929,7 +990,7 @@ export default function MainArea({
                         <label className="text-xs text-slate-400 font-bold">FTP 密码</label>
                         <input 
                           type="password"
-                          className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none" 
+                          className="w-full bg-slate-950 border border-slate-800 hover:border-slate-700 p-2.5 rounded text-sm focus:border-emerald-500 outline-none animate-none" 
                           value={ftpConfig.pass} 
                           onChange={(e) => setFtpConfig({ ...ftpConfig, pass: e.target.value })}
                           placeholder="FTP 安全密码" 
@@ -942,7 +1003,6 @@ export default function MainArea({
                         onClick={async () => {
                           setBackupStatus('正在尝试上传 FTP...');
                           try {
-                            // 先将当前的最新客户端 notes 刷入本地 Rust 数据库 (解决备份为空的问题!)
                             try {
                               const syncRes = await fetch(`${getApiBaseUrl()}/notes/sync`, {
                                 method: 'POST',
@@ -954,7 +1014,7 @@ export default function MainArea({
                                 if (setNotes) setNotes(resNotes);
                               }
                             } catch (e) {
-                              console.warn("Silently pushing local notes to core-backend SQLite prior to FTP export failed", e);
+                              console.warn("Silently pushing local notes to core-backend prior to FTP export failed", e);
                             }
 
                             const apiBase = getApiBaseUrl();
@@ -971,6 +1031,8 @@ export default function MainArea({
                             }
                           } catch (err: any) {
                             setBackupStatus('FTP 连接失败: 无法连接本地后台代理节点 (' + err.message + ')');
+                          } finally {
+                            fetchRealSyncLogs();
                           }
                         }}
                         className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold transition-all text-white border border-emerald-500 whitespace-nowrap"
@@ -1003,6 +1065,8 @@ export default function MainArea({
                             }
                           } catch (err: any) {
                             setBackupStatus('FTP 连接失败: 无法连接本地后台代理节点 (' + err.message + ')');
+                          } finally {
+                            fetchRealSyncLogs();
                           }
                         }}
                         className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-bold transition-all text-white border border-slate-600 whitespace-nowrap"
@@ -1015,7 +1079,6 @@ export default function MainArea({
                         onClick={async () => {
                           setBackupStatus('正在执行 FTP 双向同步 (下载->本地 LWW 合并->重新上载最新数据)...');
                           try {
-                            // 1. 同步本地 notes 状态到 SQLite 接口（确保本地最新更改被提交到 SQLite 数据库先）
                             try {
                               await fetch(`${getApiBaseUrl()}/notes/sync`, {
                                 method: 'POST',
@@ -1026,7 +1089,6 @@ export default function MainArea({
                               console.warn("Silent push pre-FTP sync failed", e);
                             }
 
-                            // 2. 调用 FTP 同步接口
                             const apiBase = getApiBaseUrl();
                             const res = await fetch(`${apiBase}/sync/ftp/sync`, {
                               method: 'POST',
@@ -1047,6 +1109,8 @@ export default function MainArea({
                             }
                           } catch (err: any) {
                             setBackupStatus('FTP 同步失败: 无法连接本地后台代理节点 (' + err.message + ')');
+                          } finally {
+                            fetchRealSyncLogs();
                           }
                         }}
                         className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs font-bold transition-all text-white border border-indigo-500 whitespace-nowrap"
@@ -1056,6 +1120,90 @@ export default function MainArea({
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* REAL SYNC LOGS VIEWER */}
+              <div className="space-y-4">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-indigo-400 animate-pulse" /> 局域网 & FTP 差分同步诊断日志
+                </h2>
+                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4 animate-fade-in animate-duration-150">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-850 pb-3">
+                    <div>
+                      <h3 className="font-semibold text-sm flex items-center gap-2 text-slate-100">
+                        同步实时检测控制台 
+                        <span className="px-1.5 py-0.5 bg-slate-950 text-indigo-400 text-[10px] rounded border border-slate-800 font-mono">
+                          SQLite 循环 1000 条
+                        </span>
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">捕获并在数据库中持久化记录每一次局域网 LWW、Web 到 FTP 的连接重试与报错。</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={fetchRealSyncLogs}
+                        className="px-3 py-1.5 bg-slate-900 border border-slate-800 hover:border-slate-700 hover:bg-slate-800 text-xs text-slate-300 font-bold rounded-lg transition-all flex items-center gap-1.5"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" /> 刷新
+                      </button>
+                      <button
+                        type="button"
+                        onClick={copySyncLogsToClipboard}
+                        className="px-3 py-1.5 bg-slate-900 border border-slate-800 hover:border-slate-700 hover:bg-slate-800 text-xs text-indigo-400 font-bold rounded-lg transition-all"
+                      >
+                        📋 复制日志
+                      </button>
+                      <button
+                        type="button"
+                        onClick={exportRealSyncLogs}
+                        className="px-3 py-1.5 bg-indigo-950/60 border border-indigo-900/30 hover:border-indigo-800 text-xs text-indigo-300 font-bold rounded-lg transition-all"
+                      >
+                        📥 导出文本
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearRealSyncLogs}
+                        className="px-3 py-1.5 bg-rose-950/20 border border-rose-900/10 hover:border-rose-850 text-xs text-rose-400 font-bold rounded-lg transition-all"
+                      >
+                        🗑️ 清空
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-950 rounded-xl border border-slate-850 p-4 font-mono text-xs overflow-y-auto max-h-[380px] space-y-2.5 shadow-inner select-text">
+                    {realSyncLogs.length === 0 ? (
+                      <div className="text-center py-10 text-slate-600 italic">
+                        [当前无同步日志记载] 请点击上方进行双向同步、推送、拉取或开启强制同步以生成数据流。
+                      </div>
+                    ) : (
+                      realSyncLogs.map((log, index) => {
+                        let badgeColor = "bg-slate-900 text-slate-400 border-slate-850";
+                        let textColor = "text-slate-300";
+                        if (log.level === "ERROR") {
+                          badgeColor = "bg-rose-950/60 text-rose-400 border-rose-900/30";
+                          textColor = "text-rose-200 font-semibold";
+                        } else if (log.level === "SUCCESS") {
+                          badgeColor = "bg-emerald-950/60 text-emerald-400 border-emerald-900/30";
+                          textColor = "text-emerald-200 font-semibold";
+                        } else if (log.level === "WARN") {
+                          badgeColor = "bg-amber-950/60 text-amber-500 border-amber-900/30";
+                          textColor = "text-amber-200/90";
+                        }
+                        return (
+                          <div key={index} className="flex items-start gap-3 border-b border-slate-900/30 pb-2 last:border-0 last:pb-0">
+                            <span className="text-slate-500 select-none whitespace-nowrap">{log.timestamp}</span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold border ${badgeColor} select-none`}>
+                              {log.level}
+                            </span>
+                            <span className={`flex-1 select-all break-all ${textColor}`}>
+                              {log.message}
+                            </span>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* LOCAL STORAGE CLEAR */}
