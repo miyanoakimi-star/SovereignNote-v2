@@ -39,6 +39,10 @@ pub fn router(state: AppState) -> Router {
         // 新增同步日志端点
         .route("/sync/logs", get(get_sync_logs_api).delete(clear_sync_logs_api))
         .route("/sync/logs/add", post(add_sync_log_api))
+
+        // Three-Layer Sync Probe System
+        .route("/probe", post(add_probe_event_api))
+        .route("/probe/list", get(get_probe_events_api))
         .with_state(state)
 }
 
@@ -383,12 +387,22 @@ async fn sync_to_ftp(
     }
 }
 
+#[derive(serde::Deserialize)]
+pub struct LwwTestRequestWrapper {
+    pub session_id: String,
+}
+
 async fn test_lww_connection(
     State(state): State<AppState>,
+    Json(payload): Json<LwwTestRequestWrapper>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let session_id = format!("lww-test-{}", uuid::Uuid::new_v4().to_string().get(..8).unwrap_or("run"));
+    let session_id = payload.session_id.clone();
     let protocol = Some("lww");
     
+    // Kernel probes
+    let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "lww", "receive", "start", "收到前端请求: 执行手动 LWW 联通性探测");
+    let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "lww", "forward", "start", "转发控制权至 Rust 后端连接层...");
+
     let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), protocol, Some("start"), "INFO", "开始执行手动局域网 P2P LWW 协同同步协议深度握手侦测校验...");
 
     // Step 1: 物理存储池与 SQLite 连接池状态核验
@@ -436,14 +450,20 @@ async fn test_lww_connection(
             let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), protocol, Some("lww_merge"), "SUCCESS", "【连接测试】LWW 冲突协商机制验证成功！决策模块支持最后写入赢策略、双向反向纠偏及旧版本丢弃。");
         }
         Err(e) => {
+            let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "lww", "response", "error", &format!("LWW合并探测失败: {}", e));
             let err_msg = format!("【连接测试】冲突协商仲裁引擎工作异常，无法协调多源数据状态: {}", e);
             let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), protocol, Some("lww_merge"), "ERROR", &err_msg);
+            let mut logs = db::get_probe_events(&state.pool).unwrap_or_default()
+                .into_iter()
+                .filter(|log| log.session_id == session_id)
+                .collect::<Vec<_>>();
+            logs.reverse();
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
                     "success": false,
                     "message": err_msg,
-                    "logs": db::get_sync_logs_by_session(&state.pool, &session_id).unwrap_or_default()
+                    "logs": logs
                 }))
             ));
         }
@@ -463,7 +483,12 @@ async fn test_lww_connection(
     // Step 4: 最终一致性握手闭环
     let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), protocol, Some("end"), "SUCCESS", &format!("【连接测试】[Step 4/4] 局局网广播及 LWW 本地一致性健康检测圆满结束。总计扫描并保全 {} 个原子改动，分布式自律链路完好！", notes_count));
 
-    let logs = db::get_sync_logs_by_session(&state.pool, &session_id).unwrap_or_default();
+    let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "lww", "response", "ok", "LWW 测试返回成功结果，诊断全数绿灯通行");
+    let mut logs = db::get_probe_events(&state.pool).unwrap_or_default()
+        .into_iter()
+        .filter(|log| log.session_id == session_id)
+        .collect::<Vec<_>>();
+    logs.reverse();
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "局域网 P2P LWW 协同同步协议通过全方位健康测试，链路一切正常！",
@@ -471,20 +496,35 @@ async fn test_lww_connection(
     })))
 }
 
+#[derive(serde::Deserialize)]
+pub struct FtpTestRequestWrapper {
+    pub session_id: String,
+    pub config: FtpConfig,
+}
+
 async fn test_ftp_connection(
     State(state): State<AppState>,
-    Json(config): Json<FtpConfig>,
+    Json(payload): Json<FtpTestRequestWrapper>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let session_id = format!("ftp-test-{}", uuid::Uuid::new_v4().to_string().get(..8).unwrap_or("run"));
+    let session_id = payload.session_id.clone();
+    let config = payload.config;
+    
+    // Kernel logs
+    let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "ftp", "receive", "start", "收到前端请求: 执行手动 FTP 联通性探测");
+    let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "ftp", "forward", "start", "转发控制权至 Rust 后端连接层...");
+
     let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("start"), "INFO", "开始执行手动 FTP 主机登录联通性及远程挂载目录寻址校验");
     
     let test_res = FtpStorageProvider::test_sync(&state.pool, Some(&session_id), &config).await;
     
-    // Fetch logs written during this test
-    let logs = db::get_sync_logs_by_session(&state.pool, &session_id).unwrap_or_default();
-    
     match test_res {
         Ok(_) => {
+            let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "ftp", "response", "ok", "FTP后端测试通过，返回JSON");
+            let mut logs = db::get_probe_events(&state.pool).unwrap_or_default()
+                .into_iter()
+                .filter(|log| log.session_id == session_id)
+                .collect::<Vec<_>>();
+            logs.reverse();
             Ok(Json(serde_json::json!({
                 "success": true,
                 "message": "FTP 身份口令验证及挂载路径寻址大功告成！通道已畅通。",
@@ -492,14 +532,19 @@ async fn test_ftp_connection(
             })))
         }
         Err(e) => {
+            let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "ftp", "response", "error", &format!("FTP测试出错返回: {}", e));
             let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("error"), "ERROR", &format!("FTP 连接验证未通过，握手中断。异常: {}", e));
-            let final_logs = db::get_sync_logs_by_session(&state.pool, &session_id).unwrap_or_default();
+            let mut logs = db::get_probe_events(&state.pool).unwrap_or_default()
+                .into_iter()
+                .filter(|log| log.session_id == session_id)
+                .collect::<Vec<_>>();
+            logs.reverse(); // put into chronological order
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
                     "success": false,
                     "message": e,
-                    "logs": final_logs
+                    "logs": logs
                 })),
             ))
         }
@@ -593,6 +638,49 @@ async fn add_sync_log_api(
         Err(err) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Database error on adding log: {}", err),
+        )),
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct ProbeEventRequest {
+    pub session_id: String,
+    pub layer: String,
+    pub protocol: String,
+    pub step: String,
+    pub status: String,
+    pub message: String,
+}
+
+async fn add_probe_event_api(
+    State(state): State<AppState>,
+    Json(payload): Json<ProbeEventRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    match db::add_probe_event(
+        &state.pool,
+        &payload.session_id,
+        &payload.layer,
+        &payload.protocol,
+        &payload.step,
+        &payload.status,
+        &payload.message,
+    ) {
+        Ok(_) => Ok(StatusCode::OK),
+        Err(err) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error on adding probe event: {}", err),
+        )),
+    }
+}
+
+async fn get_probe_events_api(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<db::ProbeEvent>>, (StatusCode, String)> {
+    match db::get_probe_events(&state.pool) {
+        Ok(events) => Ok(Json(events)),
+        Err(err) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error on getting probe events: {}", err),
         )),
     }
 }

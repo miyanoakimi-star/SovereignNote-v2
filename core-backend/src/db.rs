@@ -15,6 +15,18 @@ pub struct Note {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProbeEvent {
+    pub id: Option<i64>,
+    pub session_id: String,
+    pub layer: String,
+    pub protocol: String,
+    pub step: String,
+    pub status: String,
+    pub message: String,
+    pub timestamp: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SyncLog {
     pub id: Option<i64>,
     pub timestamp: String,
@@ -66,6 +78,21 @@ pub fn init_db<P: AsRef<Path>>(db_path: P) -> DbPool {
     )
     .expect("Failed to initialize sync_logs table");
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sync_probe (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            layer TEXT NOT NULL,
+            protocol TEXT NOT NULL,
+            step TEXT NOT NULL,
+            status TEXT NOT NULL,
+            message TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )",
+        [],
+    )
+    .expect("Failed to initialize sync_probe table");
+
     pool
 }
 
@@ -88,6 +115,15 @@ pub fn add_sync_log_detailed(
         "INSERT INTO sync_logs (timestamp, level, message, session_id, protocol, step) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![timestamp, level, message, session_id, protocol, step],
     )?;
+    
+    // Auto-mirror this to the probe table for "backend" layer backward compatibility
+    if let (Some(sid), Some(prot), Some(st)) = (session_id, protocol, step) {
+        let status = if level == "ERROR" { "error" } else if level == "SUCCESS" { "ok" } else { "start" };
+        let _ = conn.execute(
+            "INSERT INTO sync_probe (session_id, layer, protocol, step, status, message, timestamp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![sid, "backend", prot, st, status, message, timestamp],
+        );
+    }
 
     // 限制最近的1000条，循环保留最新
     conn.execute(
@@ -142,6 +178,48 @@ pub fn get_sync_logs_by_session(pool: &DbPool, session_id: &str) -> Result<Vec<S
         logs.push(log?);
     }
     Ok(logs)
+}
+
+pub fn add_probe_event(
+    pool: &DbPool,
+    session_id: &str,
+    layer: &str,
+    protocol: &str,
+    step: &str,
+    status: &str,
+    message: &str,
+) -> Result<(), rusqlite::Error> {
+    let conn = pool.get().map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    conn.execute(
+        "INSERT INTO sync_probe (session_id, layer, protocol, step, status, message, timestamp) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![session_id, layer, protocol, step, status, message, timestamp],
+    )?;
+    Ok(())
+}
+
+pub fn get_probe_events(pool: &DbPool) -> Result<Vec<ProbeEvent>, rusqlite::Error> {
+    let conn = pool.get().map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    let mut stmt = conn.prepare("SELECT id, session_id, layer, protocol, step, status, message, timestamp FROM sync_probe ORDER BY id DESC")?;
+    let events_iter = stmt.query_map([], |row| {
+        Ok(ProbeEvent {
+            id: Some(row.get(0)?),
+            session_id: row.get(1)?,
+            layer: row.get(2)?,
+            protocol: row.get(3)?,
+            step: row.get(4)?,
+            status: row.get(5)?,
+            message: row.get(6)?,
+            timestamp: Some(row.get(7)?),
+        })
+    })?;
+
+    let mut events = Vec::new();
+    for event in events_iter {
+        events.push(event?);
+    }
+    Ok(events)
 }
 
 pub fn clear_sync_logs(pool: &DbPool) -> Result<(), rusqlite::Error> {

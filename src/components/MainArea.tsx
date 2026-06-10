@@ -94,10 +94,10 @@ export default function MainArea({
   const [webdavLog, setWebdavLog] = useState<string[]>([]);
   // FTP connection test state
   const [ftpTestStatus, setFtpTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
-  const [ftpTestResultLogs, setFtpTestResultLogs] = useState<{ timestamp: string; level: string; message: string; step?: string }[]>([]);
+  const [ftpTestResultLogs, setFtpTestResultLogs] = useState<{ timestamp?: string; status?: string; level?: string; message: string; step?: string; layer?: string }[]>([]);
   // LWW local/LAN sync test diagnostics state
   const [lwwTestStatus, setLwwTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
-  const [lwwTestResultLogs, setLwwTestResultLogs] = useState<{ timestamp: string; level: string; message: string; step?: string }[]>([]);
+  const [lwwTestResultLogs, setLwwTestResultLogs] = useState<{ timestamp?: string; status?: string; level?: string; message: string; step?: string; layer?: string }[]>([]);
   const [backupStatus, setBackupStatus] = useState<string>('');
   const [activeSettingsTab, setActiveSettingsTab] = useState<'ui' | 'sync'>('ui');
 
@@ -607,12 +607,17 @@ export default function MainArea({
   // Handle Testing FTP with Custom Port and Path
   const handleTestFTP = async () => {
     setFtpTestStatus('testing');
+    
+    // Generate session ID for the full 3-layer pipeline tracking
+    const sessionId = `ftp-probe-${Math.random().toString(36).substring(2, 9)}`;
+    
     setFtpTestResultLogs([
       { 
         timestamp: new Date().toLocaleTimeString(), 
-        level: 'INFO', 
-        message: '🚀 [1/5 建立物理层] 正在请求本地后台代理模块，进行 FTP 主机探测建立物理 TCP 口令校验链路...', 
-        step: 'connect' 
+        status: 'start',
+        layer: 'frontend',
+        message: '🚀 将要发起 FTP 连接探测: 准备通知底层代理模块 (Kernel)...', 
+        step: 'init' 
       }
     ]);
     const host = ftpConfig?.host || '';
@@ -623,7 +628,8 @@ export default function MainArea({
       setFtpTestStatus('error');
       const errLog = {
         timestamp: new Date().toLocaleTimeString(),
-        level: 'ERROR',
+        status: 'error',
+        layer: 'frontend',
         message: '❌ 探测校验中断: 主机或端口、用户名或安全登录口令为空！请务必填写这三项。',
         step: 'validate'
       };
@@ -633,12 +639,59 @@ export default function MainArea({
     }
 
     try {
+      // 1. Frontend active probe logging
+      await import('../lib/api').then(m => m.probeKernel(sessionId, 'frontend', 'ftp', 'send_request', 'start', '向 Kernel 代理层发送测试联通请求'));
+
       const apiBase = getApiBaseUrl();
+      
+      // Setup probe polling
+      let isFetching = true;
+      const probeInterval = setInterval(async () => {
+        if (!isFetching) { clearInterval(probeInterval); return; }
+        try {
+          const probeRes = await fetch(`${apiBase}/probe/list`);
+          if (probeRes.ok) {
+            const probeData = await probeRes.json();
+            const relevantLogs = probeData.filter((l: any) => l.session_id === sessionId);
+            if (relevantLogs.length > 0) {
+              setFtpTestResultLogs(relevantLogs.reverse());
+            }
+          }
+        } catch(e) {}
+      }, 500);
+
+      // Start a 3-second timeout detector
+      let lastLogCount = 0;
+      const stuckDetector = setInterval(() => {
+        if (!isFetching) { clearInterval(stuckDetector); return; }
+        setFtpTestResultLogs(prev => {
+          if (prev.length === lastLogCount && prev.length > 0 && prev[prev.length - 1].status !== 'error' && prev[prev.length - 1].status !== 'ok') {
+             // It has been 3 seconds since last log change! 
+             return [...prev, {
+                timestamp: new Date().toLocaleTimeString(),
+                status: 'error',
+                layer: 'frontend',
+                message: '❌ 自动卡点检测介入: 超过 3 秒没有下一层响应记录，进程可能在上一环节发生阻塞或崩溃！',
+                step: 'timeout'
+             }];
+          }
+          lastLogCount = prev.length;
+          return prev;
+        });
+      }, 3000);
+
       const res = await fetch(`${apiBase}/sync/ftp/test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(ftpConfig)
+        body: JSON.stringify({
+          session_id: sessionId,
+          config: ftpConfig
+        })
       });
+      isFetching = false;
+      clearInterval(probeInterval);
+      clearInterval(stuckDetector);
+      
       const data = await res.json();
       if (data.logs && Array.isArray(data.logs)) {
         setFtpTestResultLogs(data.logs);
@@ -677,7 +730,7 @@ export default function MainArea({
       alert("当前没有可复制的 FTP 探测日志。");
       return;
     }
-    const txt = ftpTestResultLogs.map(l => `[${l.timestamp}] [${l.level}] [步骤: ${l.step || '常规'}] ${l.message}`).join('\n');
+    const txt = ftpTestResultLogs.map(l => `[${l.timestamp}] [${l.layer}] [${l.status}] [步骤: ${l.step || '常规'}] ${l.message}`).join('\n');
     navigator.clipboard.writeText(txt).then(() => {
       alert("📋 FTP 探测调试日志已复制到剪贴板！");
     });
@@ -688,28 +741,75 @@ export default function MainArea({
       alert("当前没有可导出的 FTP 探测日志。");
       return;
     }
-    const txt = ftpTestResultLogs.map(l => `[${l.timestamp}] [${l.level}] [步骤: ${l.step || '常规'}] ${l.message}`).join('\n');
+    const txt = ftpTestResultLogs.map(l => `[${l.timestamp}] [${l.layer}] [${l.status}] [步骤: ${l.step || '常规'}] ${l.message}`).join('\n');
     universalExport(txt, `ftp_test_diag_logs_${Date.now()}.txt`, "text/plain");
   };
 
   // Handle Testing LWW P2P/LAN Synchronization with backend diagnostics
   const handleTestLWW = async () => {
     setLwwTestStatus('testing');
+    
+    const sessionId = `lww-probe-${Math.random().toString(36).substring(2, 9)}`;
+    
     setLwwTestResultLogs([
       { 
         timestamp: new Date().toLocaleTimeString(), 
-        level: 'INFO', 
+        status: 'start',
+        layer: 'frontend',
         message: '🚀 [1/4 建立通讯层] 正在向本地局域网协调引擎发起诊断请求，开始检查 LWW-Element-Set 状态环路...', 
         step: 'init' 
       }
     ]);
 
     try {
+      await import('../lib/api').then(m => m.probeKernel(sessionId, 'frontend', 'lww', 'send_request', 'start', '向 Kernel 代理层发发送测试请求'));
+
       const apiBase = getApiBaseUrl();
+
+      // Setup probe polling
+      let isFetching = true;
+      const probeInterval = setInterval(async () => {
+        if (!isFetching) { clearInterval(probeInterval); return; }
+        try {
+          const probeRes = await fetch(`${apiBase}/probe/list`);
+          if (probeRes.ok) {
+            const probeData = await probeRes.json();
+            const relevantLogs = probeData.filter((l: any) => l.session_id === sessionId);
+            if (relevantLogs.length > 0) {
+              setLwwTestResultLogs(relevantLogs.reverse());
+            }
+          }
+        } catch(e) {}
+      }, 500);
+
+      // Start a 3-second timeout detector
+      let lastLogCount = 0;
+      const stuckDetector = setInterval(() => {
+        if (!isFetching) { clearInterval(stuckDetector); return; }
+        setLwwTestResultLogs(prev => {
+          if (prev.length === lastLogCount && prev.length > 0 && prev[prev.length - 1].status !== 'error' && prev[prev.length - 1].status !== 'ok') {
+             return [...prev, {
+                timestamp: new Date().toLocaleTimeString(),
+                status: 'error',
+                layer: 'frontend',
+                message: '❌ 自动卡点检测介入: 超过 3 秒没有下一层响应记录，进程可能阻塞！',
+                step: 'timeout'
+             }];
+          }
+          lastLogCount = prev.length;
+          return prev;
+        });
+      }, 3000);
+
       const res = await fetch(`${apiBase}/notes/sync/test`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId })
       });
+      isFetching = false;
+      clearInterval(probeInterval);
+      clearInterval(stuckDetector);
+
       const data = await res.json();
       if (data.logs && Array.isArray(data.logs)) {
         setLwwTestResultLogs(data.logs);
@@ -723,7 +823,8 @@ export default function MainArea({
         if (!data.logs) {
           setLwwTestResultLogs(prev => [...prev, {
             timestamp: new Date().toLocaleTimeString(),
-            level: 'ERROR',
+            status: 'error',
+            layer: 'frontend',
             message: `❌ LWW 深度检测不通过: ${data.message || '网关返回通信报错'}`,
             step: 'error'
           }]);
@@ -734,7 +835,8 @@ export default function MainArea({
       setBackupStatus('LWW 本心物理探测故障: 无法请求本地后台协同中继 (' + err.message + ')');
       setLwwTestResultLogs(prev => [...prev, {
         timestamp: new Date().toLocaleTimeString(),
-        level: 'ERROR',
+        status: 'error',
+        layer: 'frontend',
         message: `❌ 物理通信中断，本地核心离线中。报错详情: ${err.message}`,
         step: 'network'
       }]);
@@ -748,7 +850,7 @@ export default function MainArea({
       alert("当前没有可复制的 LWW 探测日志。");
       return;
     }
-    const txt = lwwTestResultLogs.map(l => `[${l.timestamp}] [${l.level}] [步骤: ${l.step || '常规'}] ${l.message}`).join('\n');
+    const txt = lwwTestResultLogs.map(l => `[${l.timestamp}] [${l.layer}] [${l.status}] [步骤: ${l.step || '常规'}] ${l.message}`).join('\n');
     navigator.clipboard.writeText(txt).then(() => {
       alert("📋 LWW 探测调试日志已复制到剪贴板！");
     });
@@ -759,7 +861,7 @@ export default function MainArea({
       alert("当前没有可导出的 LWW 探测日志。");
       return;
     }
-    const txt = lwwTestResultLogs.map(l => `[${l.timestamp}] [${l.level}] [步骤: ${l.step || '常规'}] ${l.message}`).join('\n');
+    const txt = lwwTestResultLogs.map(l => `[${l.timestamp}] [${l.layer}] [${l.status}] [步骤: ${l.step || '常规'}] ${l.message}`).join('\n');
     universalExport(txt, `lww_test_diag_logs_${Date.now()}.txt`, "text/plain");
   };
 
@@ -1175,13 +1277,13 @@ export default function MainArea({
                         {lwwTestResultLogs.map((log, index) => {
                           let levelBadge = "text-slate-500 bg-slate-900";
                           let textStyle = "text-slate-300";
-                          if (log.level === 'ERROR') {
+                          if (log.status === 'error') {
                             levelBadge = "text-rose-400 bg-rose-950/40 border border-rose-900/40 font-extrabold px-1.5 rounded";
                             textStyle = "text-rose-200 bg-rose-950/10 p-1.5 rounded border border-rose-950/20";
-                          } else if (log.level === 'SUCCESS') {
+                          } else if (log.status === 'ok') {
                             levelBadge = "text-emerald-400 bg-emerald-950/40 border border-emerald-900/40 font-bold px-1.5 rounded";
                             textStyle = "text-emerald-300";
-                          } else if (log.level === 'WARN') {
+                          } else if (log.status === 'warn') {
                             levelBadge = "text-amber-400 bg-amber-950/40 border border-amber-900/40 font-bold px-1.5 rounded";
                             textStyle = "text-amber-250";
                           }
@@ -1189,15 +1291,20 @@ export default function MainArea({
                           return (
                             <div key={index} className={`flex items-start gap-2 border-b border-rose-950/5 pb-1.5 last:border-0 last:pb-0 ${textStyle}`}>
                               <span className="text-slate-600 select-none whitespace-nowrap font-mono text-[10px]">
-                                [{log.timestamp.includes(' ') ? log.timestamp.split(' ')[1] : log.timestamp}]
+                                [{(log.timestamp || new Date().toLocaleTimeString()).includes(' ') ? (log.timestamp || '').split(' ')[1] : log.timestamp}]
                               </span>
+                              {log.layer && (
+                                <span className="bg-slate-800 text-indigo-300 text-[9px] px-1 rounded border border-slate-700 select-none font-mono">
+                                  {log.layer.toUpperCase()}
+                                </span>
+                              )}
                               {log.step && (
                                 <span className="bg-slate-900 text-indigo-400 text-[9px] px-1 rounded border border-slate-850 select-none font-mono">
                                   {log.step.toUpperCase()}
                                 </span>
                               )}
-                              <span className={`text-[9px] font-bold select-none px-1 rounded font-mono ${levelBadge}`}>
-                                {log.level}
+                              <span className={`text-[9px] font-bold select-none px-1 rounded font-mono uppercase ${levelBadge}`}>
+                                {log.status || 'INFO'}
                               </span>
                               <span className="flex-1 break-all whitespace-pre-wrap">
                                 {log.message}
@@ -1400,13 +1507,13 @@ export default function MainArea({
                           {ftpTestResultLogs.map((log, index) => {
                             let levelBadge = "text-slate-500 bg-slate-900";
                             let textStyle = "text-slate-300";
-                            if (log.level === 'ERROR') {
+                            if (log.status === 'error') {
                               levelBadge = "text-rose-400 bg-rose-950/40 border border-rose-900/40 font-extrabold px-1.5 rounded";
                               textStyle = "text-rose-200 bg-rose-950/10 p-1.5 rounded border border-rose-950/20";
-                            } else if (log.level === 'SUCCESS') {
+                            } else if (log.status === 'ok') {
                               levelBadge = "text-emerald-400 bg-emerald-950/40 border border-emerald-900/40 font-bold px-1.5 rounded";
                               textStyle = "text-emerald-300";
-                            } else if (log.level === 'WARN') {
+                            } else if (log.status === 'warn') {
                               levelBadge = "text-amber-400 bg-amber-950/40 border border-amber-900/40 font-bold px-1.5 rounded";
                               textStyle = "text-amber-250";
                             }
@@ -1414,15 +1521,20 @@ export default function MainArea({
                             return (
                               <div key={index} className={`flex items-start gap-2 border-b border-rose-950/5 pb-1.5 last:border-0 last:pb-0 ${textStyle}`}>
                                 <span className="text-slate-600 select-none whitespace-nowrap">
-                                  [{log.timestamp.includes(' ') ? log.timestamp.split(' ')[1] : log.timestamp}]
+                                  [{(log.timestamp || new Date().toLocaleTimeString()).includes(' ') ? (log.timestamp || '').split(' ')[1] : log.timestamp}]
                                 </span>
+                                {log.layer && (
+                                  <span className="bg-slate-800 text-emerald-300 text-[9px] px-1 rounded border border-slate-700 select-none font-mono">
+                                    {log.layer.toUpperCase()}
+                                  </span>
+                                )}
                                 {log.step && (
                                   <span className="bg-slate-900 text-indigo-400 text-[10px] px-1 rounded border border-slate-850 select-none">
                                     {log.step.toUpperCase()}
                                   </span>
                                 )}
-                                <span className={`text-[10px] uppercase font-bold select-none ${levelBadge}`}>
-                                  {log.level}
+                                <span className={`text-[10px] uppercase font-bold select-none px-1 rounded ${levelBadge}`}>
+                                  {log.status || 'INFO'}
                                 </span>
                                 <span className="flex-1 break-all whitespace-pre-wrap">
                                   {log.message}

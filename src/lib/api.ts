@@ -15,6 +15,35 @@ export function getApiBaseUrl(): string {
 }
 
 /**
+ * 3-Layer Sync Probe System - Frontend / Kernel Level Logger
+ */
+export async function probeKernel(
+  sessionId: string,
+  layer: 'frontend' | 'kernel',
+  protocol: string,
+  step: string,
+  status: 'start' | 'ok' | 'error' | 'warn',
+  message: string
+) {
+  try {
+    await fetch(`${getApiBaseUrl()}/probe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        session_id: sessionId,
+        layer,
+        protocol,
+        step,
+        status,
+        message
+      })
+    });
+  } catch (err) {
+    console.error("Probe error:", err);
+  }
+}
+
+/**
   * 核心 LWW-Register 合并算法：
   * 在客户端和服务器两端对同一 Note ID 采取“最后写入者胜 (Last-Write-Wins)”策略进行合并。
   */
