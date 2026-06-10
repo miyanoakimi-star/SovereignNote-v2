@@ -30,10 +30,6 @@ impl FtpStorageProvider {
         
         ftp_stream.login(&config.user, &config.pass).await.map_err(|e| e.to_string())?;
         
-        // 关键：切换到被动模式 (Passive Mode)
-        // 规避局域网/移动数据及真机测试中的 NAT/防火墙拦截
-        let mut ftp_stream = ftp_stream.into_passive().await.map_err(|e| format!("无法进入被动模式: {}", e))?;
-        
         let path = format!("{}/sovereign_backup.json", config.path);
         let mut slice = &content[..];
         ftp_stream.put_file(&path, &mut slice).await.map_err(|e| e.to_string())?;
@@ -50,9 +46,6 @@ impl FtpStorageProvider {
         
         let mut ftp_stream = AsyncFtpStream::connect(&host).await.map_err(|e| e.to_string())?;
         ftp_stream.login(&config.user, &config.pass).await.map_err(|e| e.to_string())?;
-        
-        // 关键：切换到被动模式 (Passive Mode)
-        let mut ftp_stream = ftp_stream.into_passive().await.map_err(|e| format!("无法进入被动模式: {}", e))?;
         
         let path = format!("{}/sovereign_backup.json", config.path);
         
