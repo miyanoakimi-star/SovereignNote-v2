@@ -3,7 +3,7 @@ import { NavState, Note, CalendarEvent } from './types';
 import Sidebar from './components/Sidebar';
 import PartitionBar from './components/PartitionBar';
 import MainArea from './components/MainArea';
-import { getLocalNotes, saveLocalNotes, syncWithBackend, getApiBaseUrl } from './lib/api';
+import { getLocalNotes, saveLocalNotes, syncWithBackend, getApiBaseUrl, addSyncLog } from './lib/api';
 import { universalExport } from './utils/export';
 import { safeStorage } from './utils/safeStorage';
 
@@ -256,11 +256,15 @@ export default function App() {
           const currentStr = JSON.stringify(notes);
           const syncedStr = JSON.stringify(res.notes);
           if (currentStr !== syncedStr) {
+            addSyncLog('INFO', `[局域网 LWW 自动同步] 侦测到本地缓存与 SQLite 存在版本差，完成对等差异数据融合 (LWW 策略，合并至 ${res.notes.length} 篇)。`);
             setNotes(res.notes);
           }
+        } else {
+          addSyncLog('ERROR', `[局域网 LWW 自动同步] 自动同步最终一致性融合网络异常: ${res.error || '连接服务器失败'}`);
         }
-      } catch (e) {
+      } catch (e: any) {
         console.warn('Silent local sync to Rust backend failed:', e);
+        addSyncLog('ERROR', `[局域网 LWW 自动同步] 自动同步异常报错: ${e?.message || e}`);
       }
     }, 1500); // 防抖 1.5 秒，在用户停止输入后触发
     return () => clearTimeout(timer);
@@ -277,23 +281,35 @@ export default function App() {
       const eventsUrl = `${baseUrl.replace(/\/api$/, '')}/api/events`;
       
       console.log('Connecting to real-time sync SSE event stream at:', eventsUrl);
+      addSyncLog('INFO', `[局域网 LWW SSE 通讯] 正在初始化建立跨平台局域网广播监听流 (通道地址: ${eventsUrl})...`);
+      
       sse = new EventSource(eventsUrl);
+
+      sse.onopen = () => {
+        addSyncLog('SUCCESS', `[局域网 LWW SSE 通讯] 成功建立与本地/局域网代理的实时对等网络广播监听服务，状态为【活跃接入】。`);
+      };
 
       sse.onmessage = async (event) => {
         try {
           console.log('SSE Real-time update signal detected:', event.data);
-          // 接收到任何合法的更新信号，立即执行 LWW 双端数据重组
+          addSyncLog('INFO', `[局域网 LWW SSE 通讯] 捕获局域网差分消息: ${event.data}。客户端发起 LWW 冲突重组机制。`);
+          
           const res = await syncWithBackend();
           if (res.success) {
+            addSyncLog('SUCCESS', `[局域网 LWW SSE 通讯] 差异重构完毕。前台已合流至全局最新版本记录。`);
             setNotes(res.notes);
+          } else {
+            addSyncLog('ERROR', `[局域网 LWW SSE 通讯] 同步异常断链：${res.error || '未知网络问题'}`);
           }
-        } catch (err) {
+        } catch (err: any) {
           console.warn('Error reading incoming SSE payload or merging notes:', err);
+          addSyncLog('ERROR', `[局域网 LWW SSE 通讯] 广播解析失败: ${err?.message || err}`);
         }
       };
 
       sse.onerror = () => {
         console.warn('SSE stream disconnected. Attempting auto-reconnection in 5 seconds...', eventsUrl);
+        addSyncLog('WARN', `[局域网 LWW SSE 通讯] 侦听流断开或掉路。正在计划于 5 秒后执行微秒级重试（支持局域网断网自我修复）。`);
         if (sse) {
           sse.close();
         }

@@ -97,3 +97,22 @@ export async function syncWithBackend(): Promise<{ success: boolean; notes: Note
     return { success: false, notes: localNotes, error: err.message };
   }
 }
+
+/**
+ * 远程发送一条同步或诊断日志存入 SQLite 数据库
+ */
+export async function addSyncLog(level: 'INFO' | 'SUCCESS' | 'WARN' | 'ERROR', message: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/sync/logs/add`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ level, message }),
+    });
+    return response.ok;
+  } catch (err) {
+    console.error('Failed to add remote sync log:', err);
+    return false;
+  }
+}

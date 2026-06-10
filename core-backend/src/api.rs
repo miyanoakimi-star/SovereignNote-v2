@@ -36,6 +36,7 @@ pub fn router(state: AppState) -> Router {
         
         // 新增同步日志端点
         .route("/sync/logs", get(get_sync_logs_api).delete(clear_sync_logs_api))
+        .route("/sync/logs/add", post(add_sync_log_api))
         .with_state(state)
 }
 
@@ -427,6 +428,25 @@ async fn clear_sync_logs_api(
         Err(err) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Database error on clearing logs: {}", err),
+        )),
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct AddLogRequest {
+    pub level: String,
+    pub message: String,
+}
+
+async fn add_sync_log_api(
+    State(state): State<AppState>,
+    Json(payload): Json<AddLogRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    match db::add_sync_log(&state.pool, &payload.level, &payload.message) {
+        Ok(_) => Ok(StatusCode::OK),
+        Err(err) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error on adding log: {}", err),
         )),
     }
 }
