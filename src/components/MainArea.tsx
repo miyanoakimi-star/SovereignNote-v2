@@ -95,6 +95,9 @@ export default function MainArea({
   // FTP connection test state
   const [ftpTestStatus, setFtpTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [ftpTestResultLogs, setFtpTestResultLogs] = useState<{ timestamp: string; level: string; message: string; step?: string }[]>([]);
+  // LWW local/LAN sync test diagnostics state
+  const [lwwTestStatus, setLwwTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [lwwTestResultLogs, setLwwTestResultLogs] = useState<{ timestamp: string; level: string; message: string; step?: string }[]>([]);
   const [backupStatus, setBackupStatus] = useState<string>('');
   const [activeSettingsTab, setActiveSettingsTab] = useState<'ui' | 'sync'>('ui');
 
@@ -689,6 +692,77 @@ export default function MainArea({
     universalExport(txt, `ftp_test_diag_logs_${Date.now()}.txt`, "text/plain");
   };
 
+  // Handle Testing LWW P2P/LAN Synchronization with backend diagnostics
+  const handleTestLWW = async () => {
+    setLwwTestStatus('testing');
+    setLwwTestResultLogs([
+      { 
+        timestamp: new Date().toLocaleTimeString(), 
+        level: 'INFO', 
+        message: '🚀 [1/4 建立通讯层] 正在向本地局域网协调引擎发起诊断请求，开始检查 LWW-Element-Set 状态环路...', 
+        step: 'init' 
+      }
+    ]);
+
+    try {
+      const apiBase = getApiBaseUrl();
+      const res = await fetch(`${apiBase}/notes/sync/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (data.logs && Array.isArray(data.logs)) {
+        setLwwTestResultLogs(data.logs);
+      }
+      if (res.ok && data.success) {
+        setLwwTestStatus('success');
+        setBackupStatus('LWW 局域网自卫同步健康评估：成功！');
+      } else {
+        setLwwTestStatus('error');
+        setBackupStatus('LWW 协同错误: ' + (data.message || '诊断引擎响应中止'));
+        if (!data.logs) {
+          setLwwTestResultLogs(prev => [...prev, {
+            timestamp: new Date().toLocaleTimeString(),
+            level: 'ERROR',
+            message: `❌ LWW 深度检测不通过: ${data.message || '网关返回通信报错'}`,
+            step: 'error'
+          }]);
+        }
+      }
+    } catch (err: any) {
+      setLwwTestStatus('error');
+      setBackupStatus('LWW 本心物理探测故障: 无法请求本地后台协同中继 (' + err.message + ')');
+      setLwwTestResultLogs(prev => [...prev, {
+        timestamp: new Date().toLocaleTimeString(),
+        level: 'ERROR',
+        message: `❌ 物理通信中断，本地核心离线中。报错详情: ${err.message}`,
+        step: 'network'
+      }]);
+    } finally {
+      fetchRealSyncLogs();
+    }
+  };
+
+  const copyLwwTestLogs = () => {
+    if (lwwTestResultLogs.length === 0) {
+      alert("当前没有可复制的 LWW 探测日志。");
+      return;
+    }
+    const txt = lwwTestResultLogs.map(l => `[${l.timestamp}] [${l.level}] [步骤: ${l.step || '常规'}] ${l.message}`).join('\n');
+    navigator.clipboard.writeText(txt).then(() => {
+      alert("📋 LWW 探测调试日志已复制到剪贴板！");
+    });
+  };
+
+  const exportLwwTestLogs = () => {
+    if (lwwTestResultLogs.length === 0) {
+      alert("当前没有可导出的 LWW 探测日志。");
+      return;
+    }
+    const txt = lwwTestResultLogs.map(l => `[${l.timestamp}] [${l.level}] [步骤: ${l.step || '常规'}] ${l.message}`).join('\n');
+    universalExport(txt, `lww_test_diag_logs_${Date.now()}.txt`, "text/plain");
+  };
+
   // Export custom monthly calendar events (schedules) to JSON
   const handleExportSchedules = () => {
     const jsonStr = JSON.stringify(customEvents, null, 2);
@@ -1070,6 +1144,94 @@ export default function MainArea({
                         活跃中
                       </span>
                     </div>
+                  </div>
+
+                  {/* REALTIME LWW DIAGNOSTICS LOG WINDOW */}
+                  {lwwTestResultLogs.length > 0 && (
+                    <div className="bg-slate-950 rounded-xl border border-slate-900 overflow-hidden shadow-inner flex flex-col mt-3">
+                      <div className="flex items-center justify-between px-3.5 py-2 bg-slate-900 border-b border-slate-850">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 font-mono flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                          LWW 本地与局域网节点深度协同诊断探频流
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={copyLwwTestLogs}
+                            className="text-[10px] text-indigo-400 hover:text-indigo-300 font-medium px-2 py-1 rounded bg-slate-950 hover:bg-slate-800 transition"
+                          >
+                            📋 复制日志
+                          </button>
+                          <button
+                            type="button"
+                            onClick={exportLwwTestLogs}
+                            className="text-[10px] text-emerald-400 hover:text-emerald-300 font-medium px-2 py-1 rounded bg-slate-950 hover:bg-slate-800 transition"
+                          >
+                            保存 / 导出诊断书
+                          </button>
+                        </div>
+                      </div>
+                      <div className="p-3.5 font-mono text-[11px] leading-relaxed space-y-2 max-h-[180px] overflow-y-auto select-text">
+                        {lwwTestResultLogs.map((log, index) => {
+                          let levelBadge = "text-slate-500 bg-slate-900";
+                          let textStyle = "text-slate-300";
+                          if (log.level === 'ERROR') {
+                            levelBadge = "text-rose-400 bg-rose-950/40 border border-rose-900/40 font-extrabold px-1.5 rounded";
+                            textStyle = "text-rose-200 bg-rose-950/10 p-1.5 rounded border border-rose-950/20";
+                          } else if (log.level === 'SUCCESS') {
+                            levelBadge = "text-emerald-400 bg-emerald-950/40 border border-emerald-900/40 font-bold px-1.5 rounded";
+                            textStyle = "text-emerald-300";
+                          } else if (log.level === 'WARN') {
+                            levelBadge = "text-amber-400 bg-amber-950/40 border border-amber-900/40 font-bold px-1.5 rounded";
+                            textStyle = "text-amber-250";
+                          }
+
+                          return (
+                            <div key={index} className={`flex items-start gap-2 border-b border-rose-950/5 pb-1.5 last:border-0 last:pb-0 ${textStyle}`}>
+                              <span className="text-slate-600 select-none whitespace-nowrap font-mono text-[10px]">
+                                [{log.timestamp.includes(' ') ? log.timestamp.split(' ')[1] : log.timestamp}]
+                              </span>
+                              {log.step && (
+                                <span className="bg-slate-900 text-indigo-400 text-[9px] px-1 rounded border border-slate-850 select-none font-mono">
+                                  {log.step.toUpperCase()}
+                                </span>
+                              )}
+                              <span className={`text-[9px] font-bold select-none px-1 rounded font-mono ${levelBadge}`}>
+                                {log.level}
+                              </span>
+                              <span className="flex-1 break-all whitespace-pre-wrap">
+                                {log.message}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleTestLWW}
+                      disabled={lwwTestStatus === 'testing'}
+                      className={`px-4 py-2.5 rounded-lg text-xs font-bold transition-all border whitespace-nowrap ${
+                        lwwTestStatus === 'testing'
+                          ? 'bg-slate-800 text-slate-500 border-slate-750 cursor-not-allowed'
+                          : lwwTestStatus === 'success'
+                          ? 'bg-emerald-650 hover:bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-950/20'
+                          : lwwTestStatus === 'error'
+                          ? 'bg-rose-950/40 text-rose-300 border-rose-900/30 hover:bg-rose-900/20'
+                          : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-lg shadow-indigo-950/20'
+                      }`}
+                    >
+                      {lwwTestStatus === 'testing' 
+                        ? '⏳ 正在进行 LWW 一致性健康评估...' 
+                        : lwwTestStatus === 'success' 
+                        ? '✅ LWW 链路验证成功 (点击重试)' 
+                        : lwwTestStatus === 'error' 
+                        ? '❌ 协同检测失败 (点击重新校验)' 
+                        : '⚡ 一键测试并验证 LWW 协同健康状态'}
+                    </button>
                   </div>
                 </div>
 
