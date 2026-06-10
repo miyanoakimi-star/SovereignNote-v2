@@ -101,14 +101,20 @@ export async function syncWithBackend(): Promise<{ success: boolean; notes: Note
 /**
  * 远程发送一条同步或诊断日志存入 SQLite 数据库
  */
-export async function addSyncLog(level: 'INFO' | 'SUCCESS' | 'WARN' | 'ERROR', message: string): Promise<boolean> {
+export async function addSyncLog(
+  level: 'INFO' | 'SUCCESS' | 'WARN' | 'ERROR',
+  message: string,
+  session_id?: string,
+  protocol?: string,
+  step?: string
+): Promise<boolean> {
   try {
     const response = await fetch(`${getApiBaseUrl()}/sync/logs/add`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ level, message }),
+      body: JSON.stringify({ level, message, session_id, protocol, step }),
     });
     return response.ok;
   } catch (err) {

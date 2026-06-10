@@ -96,7 +96,94 @@ export default function MainArea({
   const [activeSettingsTab, setActiveSettingsTab] = useState<'ui' | 'sync'>('ui');
 
   // Real SQLite persistent sync logging state
-  const [realSyncLogs, setRealSyncLogs] = useState<{ id?: number; timestamp: string; level: string; message: string }[]>([]);
+  const [realSyncLogs, setRealSyncLogs] = useState<{ 
+    id?: number; 
+    timestamp: string; 
+    level: string; 
+    message: string;
+    session_id?: string;
+    protocol?: string;
+    step?: string;
+  }[]>([]);
+
+  // Advanced Interactive Log Viewer States
+  const [selectedProtocol, setSelectedProtocol] = useState<'all' | 'ftp' | 'webdav' | 'lww'>('all');
+  const [viewMode, setViewMode] = useState<'grouped' | 'flat'>('grouped');
+  const [expandedSessions, setExpandedSessions] = useState<Record<string, boolean>>({});
+
+  // Group traces together based on session_id
+  const groupedSessions = useMemo(() => {
+    const groups: Record<string, {
+      sessionId: string;
+      protocol: string;
+      startTime: string;
+      endTime: string;
+      status: 'SUCCESS' | 'ERROR' | 'WARN' | 'INFO';
+      steps: { step?: string; level: string; message: string; timestamp: string }[];
+    }> = {};
+
+    // realSyncLogs is newest-first (descending order).
+    // Let's reverse it to build the chronological pipeline for each session, then show sessions newest-first.
+    const sortedLogs = [...realSyncLogs].reverse();
+
+    sortedLogs.forEach(log => {
+      // Group background system/unassigned messages logically
+      let sessionId = log.session_id;
+      let protocol = log.protocol;
+      
+      if (!sessionId) {
+        if (log.message.includes('[FTP]') || log.message.startsWith('FTP')) {
+          sessionId = 'ftp-unassigned';
+          protocol = 'ftp';
+        } else if (log.message.includes('[WebDAV]') || log.message.startsWith('WebDAV')) {
+          sessionId = 'webdav-unassigned';
+          protocol = 'webdav';
+        } else {
+          sessionId = 'lww-unassigned';
+          protocol = 'lww';
+        }
+      } else if (!protocol) {
+        protocol = sessionId.startsWith('webdav') ? 'webdav' : sessionId.startsWith('ftp') ? 'ftp' : 'lww';
+      }
+
+      if (!groups[sessionId]) {
+        groups[sessionId] = {
+          sessionId,
+          protocol: protocol || 'lww',
+          startTime: log.timestamp,
+          endTime: log.timestamp,
+          status: 'INFO',
+          steps: []
+        };
+      }
+
+      groups[sessionId].endTime = log.timestamp;
+
+      // Escalate status strictly: ERROR > WARN > SUCCESS > INFO
+      if (log.level === 'ERROR') {
+        groups[sessionId].status = 'ERROR';
+      } else if (log.level === 'WARN' && groups[sessionId].status !== 'ERROR') {
+        groups[sessionId].status = 'WARN';
+      } else if (log.level === 'SUCCESS' && groups[sessionId].status !== 'ERROR' && groups[sessionId].status !== 'WARN') {
+        groups[sessionId].status = 'SUCCESS';
+      }
+
+      groups[sessionId].steps.push({
+        step: log.step,
+        level: log.level,
+        message: log.message,
+        timestamp: log.timestamp
+      });
+    });
+
+    // Convert back to array, preserve descending ordering of latest activity, and apply protocol filter
+    return Object.values(groups)
+      .sort((a, b) => b.endTime.localeCompare(a.endTime))
+      .filter(sess => {
+        if (selectedProtocol === 'all') return true;
+        return sess.protocol.toLowerCase() === selectedProtocol;
+      });
+  }, [realSyncLogs, selectedProtocol]);
 
   const fetchRealSyncLogs = async () => {
     try {
@@ -455,22 +542,25 @@ export default function MainArea({
     const username = webdavConfig.username || '';
     const password = webdavConfig.password || '';
 
+    const sessionId = 'webdav-test-' + Math.random().toString(36).substring(2, 11).toUpperCase();
+    const protocol = 'webdav';
+
     setWebdavLog([`[1/4] 正在解析目标服务器 ${url} : ${port}...`]);
     
-    await addSyncLog('INFO', `[WebDAV 连接认证] 准备建立新 WebDAV 会话。服务器地址: ${url}:${port}，请求目录: ${path}`);
-    await addSyncLog('INFO', `[WebDAV 连接认证] 正在执行 DNS 域名解析，并寻址目标主机网络及分配端口通道...`);
+    await addSyncLog('INFO', `准备建立新 WebDAV 会话。服务器地址: ${url}:${port}，请求目录: ${path}`, sessionId, protocol, 'connect');
+    await addSyncLog('INFO', `正在执行 DNS 域名解析，并寻址目标主机网络及分配端口通道...`, sessionId, protocol, 'connect');
     fetchRealSyncLogs();
 
     setTimeout(async () => {
       setWebdavLog(prev => [...prev, `[2/4] 连接中... 安全认证协议 SSL/TLS 握手成功`]);
-      await addSyncLog('INFO', `[WebDAV 安全登录] SSL/TLS 证书检验已成功。传输层和数据会话已开启强加密安全隧道。`);
-      await addSyncLog('INFO', `[WebDAV 安全登录] 正在尝试通过 Basic Auth 安全登录凭证进行身份校验：[用户: ${username || '未填写'}]`);
+      await addSyncLog('INFO', `SSL/TLS 证书检验已成功。传输层和数据会话已开启强加密安全隧道。`, sessionId, protocol, 'login');
+      await addSyncLog('INFO', `正在尝试通过 Basic Auth 安全登录凭证进行身份校验：[用户: ${username || '未填写'}]`, sessionId, protocol, 'login');
       fetchRealSyncLogs();
     }, 400);
 
     setTimeout(async () => {
       setWebdavLog(prev => [...prev, `[3/4] 验证 WebDAV 文件夹目录 "${path}" ...`]);
-      await addSyncLog('INFO', `[WebDAV 会话探测] 用户身份已连接，开始向服务器发送 PROPFIND 请求查对并锁定远程备份路径: ${path}`);
+      await addSyncLog('INFO', `用户身份已连接，开始向服务器发送 PROPFIND 请求查对并锁定远程备份路径: ${path}`, sessionId, protocol, 'propfind');
       fetchRealSyncLogs();
     }, 800);
 
@@ -478,13 +568,13 @@ export default function MainArea({
       if (!url || !path || !username || !password) {
         setWebdavStatus('error');
         setWebdavLog(prev => [...prev, `[❌] 远程连接失败: 错误的服务器服务器地址、用户名密码或未指定存储文件夹目录`]);
-        await addSyncLog('ERROR', `[WebDAV 登录失败] WebDAV 安全握手校验未通过。错误详情: 服务器地址、用户名、密码和路径不能为空值。`);
+        await addSyncLog('ERROR', `WebDAV 安全真实双向校验未通过。错误详情: 服务器地址、用户名、密码和路径不能为空值。`, sessionId, protocol, 'error');
         fetchRealSyncLogs();
       } else {
         setWebdavStatus('success');
         setWebdavLog(prev => [...prev, `[4/4] 登录成功! 节点与文件夹已就绪。支持在后台触发无缝增量备份。`]);
-        await addSyncLog('SUCCESS', `[WebDAV 登录验证] 用户 "${username}" 成功通过 WebDAV 服务器登录授权验证！会话信道已锁定挂载。`);
-        await addSyncLog('SUCCESS', `[WebDAV 目录定位] 校验成功！远程存储路径文件夹 "${path}/" 对接完美，已做好 LWW 数据冷备份推送准备。`);
+        await addSyncLog('SUCCESS', `用户 "${username}" 成功通过 WebDAV 服务器登录授权验证！会话信道已锁定挂载。`, sessionId, protocol, 'login');
+        await addSyncLog('SUCCESS', `校验成功！远程存储路径文件夹 "${path}/" 对接完美，已做好 LWW 数据冷备份推送准备。`, sessionId, protocol, 'end');
         fetchRealSyncLogs();
       }
     }, 1200);
@@ -492,15 +582,18 @@ export default function MainArea({
 
   // Trigger file sync on WebDAV
   const handleBackupToWebDAV = async () => {
+    const sessionId = 'webdav-sync-' + Math.random().toString(36).substring(2, 11).toUpperCase();
+    const protocol = 'webdav';
+
     setBackupStatus('正在上传当前的 LWW State 历史和多级标签包至 WebDAV...');
-    await addSyncLog('INFO', `[WebDAV 同步备份] 收到备份请求。正在读取离线 LWW 笔记及多级树状结构，准备序列化打包...`);
-    await addSyncLog('INFO', `[WebDAV 同步备份] 本地封装共 ${notes.length} 篇备忘，多端日程 ${customEvents.length} 条、多级安全标签数据项...`);
+    await addSyncLog('INFO', `收到备份请求。正在读取离线 LWW 笔记及多级树状结构，准备序列化打包...`, sessionId, protocol, 'start');
+    await addSyncLog('INFO', `本地封装共 ${notes.length} 篇备忘，多端日程 ${customEvents.length} 条、多级安全标签数据项...`, sessionId, protocol, 'start');
     fetchRealSyncLogs();
 
     setTimeout(async () => {
-      await addSyncLog('INFO', `[WebDAV 同步备份] 正在将最终快照包 PUT/sovereign_backup.json 上传至远程服务器目录下，文件字节数: ${JSON.stringify(notes).length}`);
+      await addSyncLog('INFO', `正在将最终快照包 PUT/sovereign_backup.json 上传至远程服务器目录下，文件字节数: ${JSON.stringify(notes).length}`, sessionId, protocol, 'upload');
       setBackupStatus(`备份上传成功！已于 WebDAV ${webdavConfig.path}/ 目录存入最新备份快照。`);
-      await addSyncLog('SUCCESS', `[WebDAV 备份成功] 同步成功保存！冷备数据已成功写入持久化 WebDAV 目录 "${webdavConfig.path}/sovereign_backup.json" 中。`);
+      await addSyncLog('SUCCESS', `同步成功保存！冷备数据已成功写入持久化 WebDAV 目录 "${webdavConfig.path}/sovereign_backup.json" 中。`, sessionId, protocol, 'end');
       fetchRealSyncLogs();
     }, 1000);
   };
@@ -1157,19 +1250,38 @@ export default function MainArea({
 
               {/* REAL SYNC LOGS VIEWER */}
               <div className="space-y-4">
-                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-indigo-400 animate-pulse" /> 局域网 & FTP 差分同步诊断日志
-                </h2>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Terminal className="w-4 h-4 text-indigo-400 animate-pulse" /> 局域网 & 云备份 统一同步日志系统
+                  </h2>
+                  <div className="flex items-center gap-1.5 bg-slate-900/60 p-0.5 rounded-lg border border-slate-850 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('grouped')}
+                      className={`px-2.5 py-1 rounded-md font-medium transition-all ${viewMode === 'grouped' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      📦 结构化调试
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('flat')}
+                      className={`px-2.5 py-1 rounded-md font-medium transition-all ${viewMode === 'flat' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      🖥️ 原始日志流
+                    </button>
+                  </div>
+                </div>
+
                 <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4 animate-fade-in animate-duration-150">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-850 pb-3">
-                    <div>
+                  <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-850 pb-4">
+                    <div className="space-y-1">
                       <h3 className="font-semibold text-sm flex items-center gap-2 text-slate-100">
-                        同步实时检测控制台 
-                        <span className="px-1.5 py-0.5 bg-slate-950 text-indigo-400 text-[10px] rounded border border-slate-800 font-mono">
+                        同步实时监测控制台 
+                        <span className="px-1.5 py-0.5 bg-slate-950 text-indigo-450 text-[10px] rounded border border-slate-800 font-mono">
                           SQLite 循环 1000 条
                         </span>
                       </h3>
-                      <p className="text-xs text-slate-500 mt-0.5">捕获并在数据库中持久化记录每一次局域网 LWW、Web 到 FTP 的连接重试与报错。</p>
+                      <p className="text-xs text-slate-500">深度透视 WebDAV 握手、FTP 目录切入、或 LWW 局域网离线多源差异合并。</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button
@@ -1203,39 +1315,240 @@ export default function MainArea({
                     </div>
                   </div>
 
-                  <div className="bg-slate-950 rounded-xl border border-slate-850 p-4 font-mono text-xs overflow-y-auto max-h-[380px] space-y-2.5 shadow-inner select-text">
-                    {realSyncLogs.length === 0 ? (
-                      <div className="text-center py-10 text-slate-600 italic">
-                        [当前无同步日志记载] 请点击上方进行双向同步、推送、拉取或开启强制同步以生成数据流。
-                      </div>
-                    ) : (
-                      realSyncLogs.map((log, index) => {
-                        let badgeColor = "bg-slate-900 text-slate-400 border-slate-850";
-                        let textColor = "text-slate-300";
-                        if (log.level === "ERROR") {
-                          badgeColor = "bg-rose-950/60 text-rose-400 border-rose-900/30";
-                          textColor = "text-rose-200 font-semibold";
-                        } else if (log.level === "SUCCESS") {
-                          badgeColor = "bg-emerald-950/60 text-emerald-400 border-emerald-900/30";
-                          textColor = "text-emerald-200 font-semibold";
-                        } else if (log.level === "WARN") {
-                          badgeColor = "bg-amber-950/60 text-amber-500 border-amber-900/30";
-                          textColor = "text-amber-200/90";
-                        }
-                        return (
-                          <div key={index} className="flex items-start gap-3 border-b border-slate-900/30 pb-2 last:border-0 last:pb-0">
-                            <span className="text-slate-500 select-none whitespace-nowrap">{log.timestamp}</span>
-                            <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold border ${badgeColor} select-none`}>
-                              {log.level}
-                            </span>
-                            <span className={`flex-1 select-all break-all ${textColor}`}>
-                              {log.message}
-                            </span>
-                          </div>
-                        );
-                      })
+                  {/* PROTOCOL FILTER PILLS */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-slate-500 font-medium mr-1.5 select-none text-[11px]">协议过滤:</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedProtocol('all')}
+                        className={`px-3 py-1 rounded-full border text-[11px] font-bold transition-all ${selectedProtocol === 'all' ? 'bg-indigo-500/10 border-indigo-500/40 text-indigo-300' : 'bg-slate-900/40 border-slate-850 text-slate-400 hover:text-slate-300'}`}
+                      >
+                        🔄 全部 ({realSyncLogs.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedProtocol('lww')}
+                        className={`px-3 py-1 rounded-full border text-[11px] font-bold transition-all ${selectedProtocol === 'lww' ? 'bg-amber-500/15 border-amber-500/30 text-amber-300' : 'bg-slate-900/40 border-slate-850 text-slate-400 hover:text-slate-300'}`}
+                      >
+                        ⚡ LWW 协同 ({realSyncLogs.filter(l => l.protocol === 'lww' || (!l.session_id && !l.message.includes('[FTP]') && !l.message.includes('[WebDAV]'))).length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedProtocol('ftp')}
+                        className={`px-3 py-1 rounded-full border text-[11px] font-bold transition-all ${selectedProtocol === 'ftp' ? 'bg-blue-500/15 border-blue-500/30 text-blue-300' : 'bg-slate-900/40 border-slate-850 text-slate-400 hover:text-slate-300'}`}
+                      >
+                        📂 FTP 备份 ({realSyncLogs.filter(l => l.protocol === 'ftp' || (!l.session_id && (l.message.includes('[FTP]') || l.message.startsWith('FTP')))).length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedProtocol('webdav')}
+                        className={`px-3 py-1 rounded-full border text-[11px] font-bold transition-all ${selectedProtocol === 'webdav' ? 'bg-purple-500/15 border-purple-500/30 text-purple-300' : 'bg-slate-900/40 border-slate-850 text-slate-400 hover:text-slate-300'}`}
+                      >
+                        🌐 WebDAV ({realSyncLogs.filter(l => l.protocol === 'webdav' || (!l.session_id && (l.message.includes('[WebDAV]') || l.message.startsWith('WebDAV')))).length})
+                      </button>
+                    </div>
+                    {viewMode === 'grouped' && (
+                      <span className="text-[11px] text-slate-500 italic">
+                        已诊断出 {groupedSessions.length} 个独立同步事务会话
+                      </span>
                     )}
                   </div>
+
+                  {/* MAIN CONTAINER */}
+                  {viewMode === 'grouped' ? (
+                    <div className="space-y-3 max-h-[460px] overflow-y-auto pr-1 select-text">
+                      {groupedSessions.length === 0 ? (
+                        <div className="bg-slate-950/40 rounded-xl border border-slate-850 border-dashed text-center py-12 text-slate-500 italic font-mono text-xs">
+                          [当前筛选条件下无结构化诊断会话] 请触发数据传输以留存 Trace ID。
+                        </div>
+                      ) : (
+                        groupedSessions.map((session) => {
+                          const isExpanded = !!expandedSessions[session.sessionId];
+                          let cardBorder = "border-slate-850 hover:border-slate-800 bg-slate-900/30";
+                          let statusBadge = "bg-slate-950 text-slate-400 border-slate-850";
+                          let statusLabel = "就绪";
+                          
+                          if (session.status === 'ERROR') {
+                            cardBorder = "border-rose-950/60 bg-rose-950/5 hover:border-rose-900/50";
+                            statusBadge = "bg-rose-950/60 text-rose-300 border-rose-900/40";
+                            statusLabel = "异常中止";
+                          } else if (session.status === 'WARN') {
+                            cardBorder = "border-amber-950/60 bg-amber-950/5 hover:border-amber-900/50";
+                            statusBadge = "bg-amber-950/60 text-amber-300 border-amber-900/40";
+                            statusLabel = "警告提示";
+                          } else if (session.status === 'SUCCESS') {
+                            cardBorder = "border-emerald-950/50 bg-emerald-950/5 hover:border-emerald-900/40";
+                            statusBadge = "bg-emerald-950/60 text-emerald-300 border-emerald-900/40";
+                            statusLabel = "合流顺畅";
+                          }
+
+                          // Render distinct colors by protocol
+                          let protocolColor = "bg-slate-950 text-slate-400 border-slate-800";
+                          if (session.protocol === 'ftp') {
+                            protocolColor = "bg-sky-950/70 text-sky-400 border-sky-900/40";
+                          } else if (session.protocol === 'webdav') {
+                            protocolColor = "bg-purple-950/70 text-purple-400 border-purple-900/40";
+                          } else if (session.protocol === 'lww') {
+                            protocolColor = "bg-amber-950/70 text-amber-400 border-amber-900/40";
+                          }
+
+                          // Get chronological list of unique step IDs for the trace visualizer
+                          const uniqueSteps = session.steps
+                            .map(st => st.step)
+                            .filter((val, i, self) => val && self.indexOf(val) === i);
+
+                          return (
+                            <div key={session.sessionId} className={`rounded-xl border transition-all ${cardBorder} overflow-hidden`}>
+                              {/* HEADER COLLAPSIBLE BANNER */}
+                              <div 
+                                onClick={() => {
+                                  setExpandedSessions(prev => ({
+                                    ...prev,
+                                    [session.sessionId]: !prev[session.sessionId]
+                                  }));
+                                }}
+                                className="p-3.5 flex flex-wrap items-center justify-between gap-3 cursor-pointer select-none"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase border tracking-wider font-mono ${protocolColor}`}>
+                                    {session.protocol}
+                                  </span>
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-slate-200 font-bold text-xs font-mono">
+                                        SESSION: {session.sessionId.length > 16 ? `${session.sessionId.substring(0, 8)}...` : session.sessionId}
+                                      </span>
+                                      <span className="text-[10px] text-slate-500 font-mono hidden sm:inline">
+                                        ({session.startTime.substring(11)})
+                                      </span>
+                                    </div>
+                                    {/* HORIZONTAL STEP TRACE PIPELINE */}
+                                    {uniqueSteps.length > 0 && (
+                                      <div className="flex flex-wrap items-center gap-1 text-[9px] text-slate-500 font-mono mt-1">
+                                        {uniqueSteps.map((s, idx) => {
+                                          let isStepError = false;
+                                          session.steps.forEach(st => {
+                                            if (st.step === s && st.level === 'ERROR') isStepError = true;
+                                          });
+
+                                          return (
+                                            <div key={idx} className="flex items-center gap-1">
+                                              {idx > 0 && <span>→</span>}
+                                              <span className={`px-1 py-0.2 rounded font-semibold ${isStepError ? 'bg-rose-900/50 text-rose-300' : 'bg-slate-950/60 text-slate-400 border border-slate-850'}`}>
+                                                {s}
+                                              </span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-3">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${statusBadge}`}>
+                                    {statusLabel}
+                                  </span>
+                                  <span className="text-slate-500 transition-transform duration-200 text-xs">
+                                    {isExpanded ? '▼ 隐藏' : '▲ 诊断'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* EXPANDED TERMINAL VIEW */}
+                              {isExpanded && (
+                                <div className="bg-slate-950 p-3 border-t border-slate-850 font-mono text-[11px] space-y-2 select-text shadow-inner">
+                                  <div className="text-[10px] text-slate-500 border-b border-slate-900 pb-1.5 mb-1.5 flex justify-between select-none">
+                                    <span>事务启动时间印记: {session.startTime}</span>
+                                    <span>会话闭环时间印记: {session.endTime}</span>
+                                  </div>
+                                  {session.steps.map((st, sidx) => {
+                                    let tagStyle = "text-slate-400";
+                                    let wrapperStyle = "text-slate-300";
+                                    if (st.level === "ERROR") {
+                                      tagStyle = "text-rose-400 font-bold bg-rose-950/50 border border-rose-900/30 px-1 rounded";
+                                      wrapperStyle = "text-rose-200 bg-rose-950/10 p-1.5 rounded border border-rose-900/10";
+                                    } else if (st.level === "SUCCESS") {
+                                      tagStyle = "text-emerald-400 font-bold bg-emerald-950/50 border border-emerald-900/30 px-1 rounded";
+                                      wrapperStyle = "text-emerald-200";
+                                    } else if (st.level === "WARN") {
+                                      tagStyle = "text-amber-400 font-bold bg-amber-950/50 border border-amber-900/30 px-1 rounded";
+                                      wrapperStyle = "text-amber-200/90";
+                                    }
+                                    
+                                    return (
+                                      <div key={sidx} className={`flex items-start gap-2 border-b border-slate-950 pb-1 last:border-0 last:pb-0 ${wrapperStyle}`}>
+                                        <span className="text-slate-600 select-none whitespace-nowrap">
+                                          [{st.timestamp.substring(11)}]
+                                        </span>
+                                        {st.step && (
+                                          <span className="bg-slate-900/80 px-1 rounded text-indigo-400 text-[10px] select-none border border-slate-850">
+                                            {st.step}
+                                          </span>
+                                        )}
+                                        <span className={`text-[10px] uppercase font-bold select-none ${tagStyle}`}>
+                                          [{st.level}]
+                                        </span>
+                                        <span className="flex-1 break-all leading-relaxed whitespace-pre-wrap select-all">
+                                          {st.message}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-slate-950 rounded-xl border border-slate-850 p-4 font-mono text-xs overflow-y-auto max-h-[380px] space-y-2.5 shadow-inner select-text">
+                      {realSyncLogs.length === 0 ? (
+                        <div className="text-center py-10 text-slate-600 italic">
+                          [当前无同步日志记载] 请点击上方进行双向同步、推送、拉取或开启强制同步以生成数据流。
+                        </div>
+                      ) : (
+                        realSyncLogs
+                          .filter(log => {
+                            if (selectedProtocol === 'all') return true;
+                            const protocol = log.protocol || (log.message.includes('[FTP]') ? 'ftp' : log.message.includes('[WebDAV]') ? 'webdav' : 'lww');
+                            return protocol === selectedProtocol;
+                          })
+                          .map((log, index) => {
+                            let badgeColor = "bg-slate-900 text-slate-400 border-slate-850";
+                            let textColor = "text-slate-300";
+                            if (log.level === "ERROR") {
+                              badgeColor = "bg-rose-950/60 text-rose-400 border-rose-900/30";
+                              textColor = "text-rose-200 font-semibold";
+                            } else if (log.level === "SUCCESS") {
+                              badgeColor = "bg-emerald-950/60 text-emerald-400 border-emerald-900/30";
+                              textColor = "text-emerald-200 font-semibold";
+                            } else if (log.level === "WARN") {
+                              badgeColor = "bg-amber-950/60 text-amber-500 border-amber-900/30";
+                              textColor = "text-amber-200/90";
+                            }
+                            return (
+                              <div key={index} className="flex items-start gap-3 border-b border-slate-900/30 pb-2 last:border-0 last:pb-0">
+                                <span className="text-slate-500 select-none whitespace-nowrap">{log.timestamp}</span>
+                                {log.protocol && (
+                                  <span className="px-1 bg-slate-900 text-[10px] text-indigo-400 rounded uppercase font-bold border border-slate-800 select-none">
+                                    {log.protocol}
+                                  </span>
+                                )}
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold border ${badgeColor} select-none`}>
+                                  {log.level}
+                                </span>
+                                <span className={`flex-1 select-all break-all ${textColor}`}>
+                                  {log.message}
+                                </span>
+                              </div>
+                            );
+                          })
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 

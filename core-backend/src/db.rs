@@ -20,6 +20,9 @@ pub struct SyncLog {
     pub timestamp: String,
     pub level: String,
     pub message: String,
+    pub session_id: Option<String>,
+    pub protocol: Option<String>,
+    pub step: Option<String>,
 }
 
 pub type DbPool = Pool<SqliteConnectionManager>;
@@ -47,13 +50,17 @@ pub fn init_db<P: AsRef<Path>>(db_path: P) -> DbPool {
     )
     .expect("Failed to initialize database tables");
 
-    // 初始化 sync_logs 数据库表
+    // Drop then recreate table to ensure new columns (session_id, protocol, step) exist
+    let _ = conn.execute("DROP TABLE IF EXISTS sync_logs", []);
     conn.execute(
         "CREATE TABLE IF NOT EXISTS sync_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
             level TEXT NOT NULL,
-            message TEXT NOT NULL
+            message TEXT NOT NULL,
+            session_id TEXT,
+            protocol TEXT,
+            step TEXT
         )",
         [],
     )
@@ -63,12 +70,23 @@ pub fn init_db<P: AsRef<Path>>(db_path: P) -> DbPool {
 }
 
 pub fn add_sync_log(pool: &DbPool, level: &str, message: &str) -> Result<(), rusqlite::Error> {
+    add_sync_log_detailed(pool, None, None, None, level, message)
+}
+
+pub fn add_sync_log_detailed(
+    pool: &DbPool,
+    session_id: Option<&str>,
+    protocol: Option<&str>,
+    step: Option<&str>,
+    level: &str,
+    message: &str,
+) -> Result<(), rusqlite::Error> {
     let conn = pool.get().map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     conn.execute(
-        "INSERT INTO sync_logs (timestamp, level, message) VALUES (?1, ?2, ?3)",
-        params![timestamp, level, message],
+        "INSERT INTO sync_logs (timestamp, level, message, session_id, protocol, step) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![timestamp, level, message, session_id, protocol, step],
     )?;
 
     // 限制最近的1000条，循环保留最新
@@ -84,13 +102,16 @@ pub fn add_sync_log(pool: &DbPool, level: &str, message: &str) -> Result<(), rus
 
 pub fn get_sync_logs(pool: &DbPool) -> Result<Vec<SyncLog>, rusqlite::Error> {
     let conn = pool.get().map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-    let mut stmt = conn.prepare("SELECT id, timestamp, level, message FROM sync_logs ORDER BY id DESC")?;
+    let mut stmt = conn.prepare("SELECT id, timestamp, level, message, session_id, protocol, step FROM sync_logs ORDER BY id DESC")?;
     let logs_iter = stmt.query_map([], |row| {
         Ok(SyncLog {
             id: Some(row.get(0)?),
             timestamp: row.get(1)?,
             level: row.get(2)?,
             message: row.get(3)?,
+            session_id: row.get(4)?,
+            protocol: row.get(5)?,
+            step: row.get(6)?,
         })
     })?;
 

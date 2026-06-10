@@ -181,10 +181,11 @@ async fn pull_from_ftp(
     State(state): State<AppState>,
     Json(config): Json<FtpConfig>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let _ = db::add_sync_log(&state.pool, "INFO", "开始执行 FTP 拉取进程。");
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("start"), "INFO", "主平台触发【FTP 自助拉取备份进程】（正在开启异步拉流服务）");
     
-    let bytes_opt = FtpStorageProvider::download_sync(&state.pool, &config).await.map_err(|e| {
-        let _ = db::add_sync_log(&state.pool, "ERROR", &format!("FTP 下载失败: {}", e));
+    let bytes_opt = FtpStorageProvider::download_sync(&state.pool, Some(&session_id), &config).await.map_err(|e| {
+        let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("error"), "ERROR", &format!("FTP 下载阶段传输中断: {}", e));
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -197,7 +198,7 @@ async fn pull_from_ftp(
     let bytes = match bytes_opt {
         Some(b) => b,
         None => {
-            let _ = db::add_sync_log(&state.pool, "WARN", "FTP 服务器上未发现备份文件(sovereign_backup.json)，返空。");
+            let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("end"), "WARN", "未匹配到任何归档卷存在。同步中断返回。");
             return Ok(Json(serde_json::json!({
                 "success": true,
                 "message": "FTP 服务器上未发现备份文件(sovereign_backup.json)，无法提取备份。",
@@ -207,7 +208,7 @@ async fn pull_from_ftp(
     };
 
     let notes = parse_notes_from_bytes(&bytes).map_err(|e| {
-        let _ = db::add_sync_log(&state.pool, "ERROR", &format!("解析备份文件失败: {}", e));
+        let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("error"), "ERROR", &format!("远程归档物序列化损坏，反序列化冲突: {}", e));
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -218,7 +219,7 @@ async fn pull_from_ftp(
     })?;
 
     let merged_notes = db::sync_notes(&state.pool, notes).map_err(|e| {
-        let _ = db::add_sync_log(&state.pool, "ERROR", &format!("合并数据到本地数据库失败: {}", e));
+        let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("error"), "ERROR", &format!("本地缓存写入引擎处理异常: {}", e));
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -229,7 +230,7 @@ async fn pull_from_ftp(
         )
     })?;
 
-    let _ = db::add_sync_log(&state.pool, "SUCCESS", "FTP 拉取合并流程全部成功！已将云端差异数据合并。");
+    let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("end"), "SUCCESS", &format!("FTP 下行同步成功完毕，本地已合流并刷新。当前全局活跃备忘记录: {} 篇", merged_notes.len()));
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "FTP 数据拉取并合并成功！",
@@ -241,11 +242,12 @@ async fn bidirectional_ftp_sync(
     State(state): State<AppState>,
     Json(config): Json<FtpConfig>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let _ = db::add_sync_log(&state.pool, "INFO", "开始执行 FTP 双向闭环同步 (下载 -> 本地LWW合并 -> 覆盖上载)");
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("start"), "INFO", "收到手动【双向合并融合同步】触发流：开始执行下行拉取。");
     
     // 1. 下载 FTP 备份（若文件存在）
-    let bytes_opt = FtpStorageProvider::download_sync(&state.pool, &config).await.map_err(|e| {
-        let _ = db::add_sync_log(&state.pool, "ERROR", &format!("FTP 双向同步：合并下载阶段失败: {}", e));
+    let bytes_opt = FtpStorageProvider::download_sync(&state.pool, Some(&session_id), &config).await.map_err(|e| {
+        let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("error"), "ERROR", &format!("双向同步下载错误: {}", e));
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -257,14 +259,14 @@ async fn bidirectional_ftp_sync(
 
     if let Some(bytes) = bytes_opt {
         if let Ok(ftp_notes) = parse_notes_from_bytes(&bytes) {
-            let _ = db::add_sync_log(&state.pool, "INFO", &format!("对从 FTP 下载的 {} 篇云端笔记在本地执行 LWW 调停机制", ftp_notes.len()));
+            let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("lww_merge"), "INFO", &format!("拉回 {} 条云端记录，并就地调起双端 LWW 最终一致性调停机制...", ftp_notes.len()));
             let _ = db::sync_notes(&state.pool, ftp_notes);
         }
     }
 
     // 2. 取出合并后的全部最新 LWW 笔记记录
     let all_notes = db::get_all_notes(&state.pool).map_err(|e| {
-        let _ = db::add_sync_log(&state.pool, "ERROR", &format!("双向同步读取本地数据库出错: {}", e));
+        let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("error"), "ERROR", &format!("加载本地全量状态失败: {}", e));
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -277,7 +279,7 @@ async fn bidirectional_ftp_sync(
 
     // 3. 序列化并再回推覆盖 FTP 备份，完成双向闭环同步
     let upload_content = serde_json::to_vec(&all_notes).map_err(|e| {
-        let _ = db::add_sync_log(&state.pool, "ERROR", &format!("双向同步合并序列化失败: {}", e));
+        let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("error"), "ERROR", &format!("融合后包体序列化失败: {}", e));
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -288,9 +290,9 @@ async fn bidirectional_ftp_sync(
         )
     })?;
 
-    let _ = db::add_sync_log(&state.pool, "INFO", &format!("正在回推融合同步后的全量最新数据 (共 {} 篇 / 字节数: {})", all_notes.len(), upload_content.len()));
-    FtpStorageProvider::upload_sync(&state.pool, &config, upload_content).await.map_err(|e| {
-        let _ = db::add_sync_log(&state.pool, "ERROR", &format!("FTP 覆盖同步更新失败: {}", e));
+    let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("upload"), "INFO", &format!("双向合并完成！启动上行安全推流，覆盖云端，上载 Payload 尺寸: {} 字节。", upload_content.len()));
+    FtpStorageProvider::upload_sync(&state.pool, Some(&session_id), &config, upload_content).await.map_err(|e| {
+        let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("error"), "ERROR", &format!("同步最终写入操作失败: {}", e));
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -300,7 +302,7 @@ async fn bidirectional_ftp_sync(
         )
     })?;
 
-    let _ = db::add_sync_log(&state.pool, "SUCCESS", "FTP 客户端与服务端双向融合闭环同步大获成功！");
+    let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("end"), "SUCCESS", &format!("FTP 双向状态自动纠偏和强一致合流告捷！多端设备均已收敛至 {} 篇全局最新快照状态。", all_notes.len()));
     Ok(Json(serde_json::json!({
         "success": true,
         "message": "FTP 双向同步成功！云端与本地已融合同步。",
@@ -311,11 +313,15 @@ async fn bidirectional_ftp_sync(
 async fn force_sync(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Note>>, (StatusCode, String)> {
-    let _ = db::add_sync_log(&state.pool, "INFO", "触发强制手动同步。");
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("lww"), Some("start"), "INFO", "主干发起【强制手动同步信令】。正在核查本地持久化缓冲区...");
     match db::get_all_notes(&state.pool) {
-        Ok(notes) => Ok(Json(notes)),
+        Ok(notes) => {
+            let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("lww"), Some("end"), "SUCCESS", "本地数据库读盘通过。");
+            Ok(Json(notes))
+        }
         Err(err) => {
-            let _ = db::add_sync_log(&state.pool, "ERROR", &format!("强制手动同步失败: {}", err));
+            let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("lww"), Some("error"), "ERROR", &format!("强制同步检测失败: {}", err));
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Force sync error: {}", err),
@@ -328,9 +334,10 @@ async fn sync_to_ftp(
     State(state): State<AppState>,
     Json(config): Json<FtpConfig>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let _ = db::add_sync_log(&state.pool, "INFO", "开始执行 FTP 推送备份。");
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("start"), "INFO", "主平台触发【FTP 推送冷归档】指令（上行独占式）");
     let notes = db::get_all_notes(&state.pool).map_err(|e| {
-        let _ = db::add_sync_log(&state.pool, "ERROR", &format!("推送备份前获取本地数据失败: {}", e));
+        let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("error"), "ERROR", &format!("推送前读取本地快照失败: {}", e));
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -342,7 +349,7 @@ async fn sync_to_ftp(
     })?;
     
     let content = serde_json::to_vec(&notes).map_err(|e| {
-        let _ = db::add_sync_log(&state.pool, "ERROR", &format!("推送备份序列化失败: {}", e));
+        let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("error"), "ERROR", &format!("本地包体打包编码异常: {}", e));
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -353,16 +360,16 @@ async fn sync_to_ftp(
         )
     })?;
     
-    match FtpStorageProvider::upload_sync(&state.pool, &config, content).await {
+    match FtpStorageProvider::upload_sync(&state.pool, Some(&session_id), &config, content).await {
         Ok(_) => {
-            let _ = db::add_sync_log(&state.pool, "SUCCESS", "FTP 增量备份推送完成！");
+            let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("end"), "SUCCESS", &format!("上行推送宣告成功。共归档：{} 条备忘。", notes.len()));
             Ok(Json(serde_json::json!({
                 "success": true,
                 "message": "FTP 备份推送成功"
             })))
         }
         Err(e) => {
-            let _ = db::add_sync_log(&state.pool, "ERROR", &format!("FTP 推送备份失败: {}", e));
+            let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("error"), "ERROR", &format!("上行推送物理写入失败: {}", e));
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
@@ -390,11 +397,15 @@ async fn sync_notes(
     State(state): State<AppState>,
     Json(incoming_notes): Json<Vec<Note>>,
 ) -> Result<Json<Vec<Note>>, (StatusCode, String)> {
-    let _ = db::add_sync_log(&state.pool, "INFO", &format!("已有旧终端同步：尝试融合 {} 篇笔记", incoming_notes.len()));
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("lww"), Some("start"), "INFO", &format!("传统接口：尝试与 SQLite LWW 引擎合流 {} 篇笔记", incoming_notes.len()));
     match db::sync_notes(&state.pool, incoming_notes) {
-        Ok(notes) => Ok(Json(notes)),
+        Ok(notes) => {
+            let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("lww"), Some("end"), "SUCCESS", "传统接口合流并通过最终一致性检测。");
+            Ok(Json(notes))
+        }
         Err(err) => {
-            let _ = db::add_sync_log(&state.pool, "ERROR", &format!("已有旧终端数据合并失败: {}", err));
+            let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("lww"), Some("error"), "ERROR", &format!("已有旧终端数据合并失败: {}", err));
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Sync merge error: {}", err),
@@ -436,13 +447,23 @@ async fn clear_sync_logs_api(
 pub struct AddLogRequest {
     pub level: String,
     pub message: String,
+    pub session_id: Option<String>,
+    pub protocol: Option<String>,
+    pub step: Option<String>,
 }
 
 async fn add_sync_log_api(
     State(state): State<AppState>,
     Json(payload): Json<AddLogRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    match db::add_sync_log(&state.pool, &payload.level, &payload.message) {
+    match db::add_sync_log_detailed(
+        &state.pool,
+        payload.session_id.as_deref(),
+        payload.protocol.as_deref(),
+        payload.step.as_deref(),
+        &payload.level,
+        &payload.message,
+    ) {
         Ok(_) => Ok(StatusCode::OK),
         Err(err) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
