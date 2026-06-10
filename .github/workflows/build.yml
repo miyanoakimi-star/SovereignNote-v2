@@ -130,11 +130,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      - name: ☕ 配置 Java 21 基座环境
+      - name: ☕ 配置 Java 11 基座环境
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '21'
+          java-version: '11'
 
       - name: 📥 载入暂存的前端打包资产
         uses: actions/download-artifact@v4
@@ -179,7 +179,6 @@ jobs:
       - name: ⚡ 构建 Android APK 原生包 (Debug/Release)
         run: |
           cd android
-          gradle wrapper --gradle-version 8.14.3
           chmod +x gradlew
           ./gradlew assembleRelease
           ./gradlew assembleDebug
