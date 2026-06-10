@@ -92,6 +92,8 @@ export default function MainArea({
   // WebDAV status simulation state
   const [webdavStatus, setWebdavStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [webdavLog, setWebdavLog] = useState<string[]>([]);
+  // FTP connection test state
+  const [ftpTestStatus, setFtpTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [backupStatus, setBackupStatus] = useState<string>('');
   const [activeSettingsTab, setActiveSettingsTab] = useState<'ui' | 'sync'>('ui');
 
@@ -596,6 +598,42 @@ export default function MainArea({
       await addSyncLog('SUCCESS', `同步成功保存！冷备数据已成功写入持久化 WebDAV 目录 "${webdavConfig.path}/sovereign_backup.json" 中。`, sessionId, protocol, 'end');
       fetchRealSyncLogs();
     }, 1000);
+  };
+
+  // Handle Testing FTP with Custom Port and Path
+  const handleTestFTP = async () => {
+    setFtpTestStatus('testing');
+    const host = ftpConfig?.host || '';
+    const user = ftpConfig?.user || '';
+    const pass = ftpConfig?.pass || '';
+
+    if (!host || !user || !pass) {
+      setFtpTestStatus('error');
+      setBackupStatus('FTP 连接校验未通过。错误详情: 主机、用户名和密码不能为空值。');
+      return;
+    }
+
+    try {
+      const apiBase = getApiBaseUrl();
+      const res = await fetch(`${apiBase}/sync/ftp/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ftpConfig)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setFtpTestStatus('success');
+        setBackupStatus('FTP 身份授权及挂载路径寻址成功！通道已联通。');
+      } else {
+        setFtpTestStatus('error');
+        setBackupStatus('FTP 错误: ' + (data.message || '连接失败或登录无效'));
+      }
+    } catch (err: any) {
+      setFtpTestStatus('error');
+      setBackupStatus('FTP 连接测试失败: 无法连接本地后台代理节点 (' + err.message + ')');
+    } finally {
+      fetchRealSyncLogs();
+    }
   };
 
   // Export custom monthly calendar events (schedules) to JSON
@@ -1118,6 +1156,23 @@ export default function MainArea({
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={handleTestFTP}
+                        disabled={ftpTestStatus === 'testing'}
+                        className={`px-4 py-2.5 rounded-lg text-xs font-bold transition-all border whitespace-nowrap ${
+                          ftpTestStatus === 'testing'
+                            ? 'bg-slate-800 text-slate-500 border-slate-750 cursor-not-allowed'
+                            : ftpTestStatus === 'success'
+                            ? 'bg-emerald-650 hover:bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-950/20'
+                            : ftpTestStatus === 'error'
+                            ? 'bg-rose-950/40 text-rose-300 border-rose-900/30 hover:bg-rose-900/20'
+                            : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-lg shadow-indigo-950/20'
+                        }`}
+                      >
+                        {ftpTestStatus === 'testing' ? '⏳ 正在进行连接测试...' : ftpTestStatus === 'success' ? '✅ FTP 身份验证成功 (点击重试)' : ftpTestStatus === 'error' ? '❌ 探测登录失败 (点击重新校验)' : '⚡ 一键测试并验证 FTP 连接'}
+                      </button>
+
                       <button 
                         type="button"
                         onClick={async () => {

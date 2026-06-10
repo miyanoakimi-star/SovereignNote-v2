@@ -14,6 +14,71 @@ pub struct FtpConfig {
 pub struct FtpStorageProvider;
 
 impl FtpStorageProvider {
+    pub async fn test_sync(
+        pool: &DbPool,
+        session_id: Option<&str>,
+        config: &FtpConfig,
+    ) -> Result<(), String> {
+        let host = if config.host.contains(':') {
+            config.host.clone()
+        } else {
+            format!("{}:21", config.host)
+        };
+        
+        let protocol = Some("ftp");
+        let _ = add_sync_log_detailed(pool, session_id, protocol, Some("connect"), "INFO", &format!("【连接测试】准备建立新 FTP 传输信道，准备接入目标网络主机：{}", host));
+
+        let mut ftp_stream = match AsyncFtpStream::connect(&host).await {
+            Ok(stream) => {
+                let _ = add_sync_log_detailed(pool, session_id, protocol, Some("connect"), "SUCCESS", "【连接测试】物理层套接字 TCP 链路握手完成。");
+                stream
+            }
+            Err(e) => {
+                let err_msg = format!("【连接测试】物理层网络握手异常: {}", e);
+                let _ = add_sync_log_detailed(pool, session_id, protocol, Some("connect"), "ERROR", &err_msg);
+                return Err(err_msg);
+            }
+        };
+
+        let _ = add_sync_log_detailed(pool, session_id, protocol, Some("login"), "INFO", &format!("【连接测试】向 FTP 网关发送登录令牌。用户名: '{}'", config.user));
+        if let Err(e) = ftp_stream.login(&config.user, &config.pass).await {
+            let err_msg = format!("【连接测试】安全网关登录验证未通过: {}", e);
+            let _ = add_sync_log_detailed(pool, session_id, protocol, Some("login"), "ERROR", &err_msg);
+            return Err(err_msg);
+        }
+        let _ = add_sync_log_detailed(pool, session_id, protocol, Some("login"), "SUCCESS", "【连接测试】FTP 双向身份令牌安全验证已核准通过，开始申请分配数据端口。");
+        
+        // 测试数据通道是否正常
+        let _ = add_sync_log_detailed(pool, session_id, protocol, Some("list"), "INFO", "【连接测试】提交 LIST 侦测指令，校验宿主机远程文件系统访问权及主动/被动模式是否通畅。");
+        match ftp_stream.list(None).await {
+            Ok(list) => {
+                let _ = add_sync_log_detailed(pool, session_id, protocol, Some("list"), "SUCCESS", &format!("【连接测试】目录探测顺利！已成功定位当前会话节点中的 {} 个底层文件对象。", list.len()));
+            }
+            Err(e) => {
+                let err_msg = format!("【连接测试】LIST 命令异常 (常见于内网多路复用防火墙拦截、或无PASV备用端口限流): {}", e);
+                let _ = add_sync_log_detailed(pool, session_id, protocol, Some("list"), "WARN", &err_msg);
+            }
+        }
+
+        // 切目录
+        if !config.path.trim().is_empty() {
+            let _ = add_sync_log_detailed(pool, session_id, protocol, Some("cwd"), "INFO", &format!("【连接测试】发出 CWD/CD 命令跳转到目标文件归档绝对路径: '{}'", config.path));
+
+            if let Err(e) = ftp_stream.cwd(&config.path).await {
+                let err_msg = format!("【连接测试】在多级云盘结构寻找路径失败 '{}', 校验该服务器远程路径是否存在。异常：{}", config.path, e);
+                let _ = add_sync_log_detailed(pool, session_id, protocol, Some("cwd"), "ERROR", &err_msg);
+                return Err(err_msg);
+            }
+
+            let _ = add_sync_log_detailed(pool, session_id, protocol, Some("cwd"), "SUCCESS", &format!("【连接测试】已完成远程路径绑定，当前工作指针定位在: '{}'", config.path));
+        }
+        
+        let _ = add_sync_log_detailed(pool, session_id, protocol, Some("end"), "SUCCESS", "【连接测试】FTP 接口联通性与登录权限完整性校验圆满成功！");
+
+        let _ = ftp_stream.quit().await;
+        Ok(())
+    }
+
     pub async fn upload_sync(
         pool: &DbPool,
         session_id: Option<&str>,

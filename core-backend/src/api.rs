@@ -26,6 +26,7 @@ pub fn router(state: AppState) -> Router {
         .route("/sync/ftp", post(sync_to_ftp))
         .route("/sync/ftp/pull", post(pull_from_ftp))
         .route("/sync/ftp/sync", post(bidirectional_ftp_sync))
+        .route("/sync/ftp/test", post(test_ftp_connection))
         
         // 推荐的全新稳定高可用 LWW + SSE 架构端点
         .route("/notes/get", get(get_notes_new))
@@ -370,6 +371,33 @@ async fn sync_to_ftp(
         }
         Err(e) => {
             let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("error"), "ERROR", &format!("上行推送物理写入失败: {}", e));
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "message": e
+                })),
+            ))
+        }
+    }
+}
+
+async fn test_ftp_connection(
+    State(state): State<AppState>,
+    Json(config): Json<FtpConfig>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let session_id = format!("ftp-test-{}", uuid::Uuid::new_v4().to_string().get(..8).unwrap_or("run"));
+    let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("start"), "INFO", "开始执行手动 FTP 主机登录联通性及远程挂载目录寻址校验");
+    
+    match FtpStorageProvider::test_sync(&state.pool, Some(&session_id), &config).await {
+        Ok(_) => {
+            Ok(Json(serde_json::json!({
+                "success": true,
+                "message": "FTP 身份口令验证及挂载路径寻址大功告成！通道已畅通。"
+            })))
+        }
+        Err(e) => {
+            let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("error"), "ERROR", &format!("FTP 连接验证未通过，握手中断。异常: {}", e));
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
