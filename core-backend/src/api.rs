@@ -4,19 +4,36 @@ use axum::{
     Json,
     routing::{get, post},
     Router,
+    response::sse::{Event, KeepAlive, Sse},
 };
 use crate::db::{self, DbPool, Note};
 use crate::ftp::{FtpConfig, FtpStorageProvider};
+use futures_util::stream::{self, Stream};
+use std::convert::Infallible;
 
-pub fn router(pool: DbPool) -> Router {
+#[derive(Clone)]
+pub struct AppState {
+    pub pool: DbPool,
+    pub tx: tokio::sync::broadcast::Sender<String>,
+}
+
+pub fn router(state: AppState) -> Router {
     Router::new()
+        // 兼容已有旧端点
         .route("/notes", get(get_notes))
         .route("/notes/sync", post(sync_notes))
         .route("/notes/sync/force", post(force_sync))
         .route("/sync/ftp", post(sync_to_ftp))
         .route("/sync/ftp/pull", post(pull_from_ftp))
         .route("/sync/ftp/sync", post(bidirectional_ftp_sync))
-        .with_state(pool)
+        
+        // 推荐的全新稳定高可用 LWW + SSE 架构端点
+        .route("/notes/get", get(get_notes_new))
+        .route("/notes/update", post(update_note_new))
+        .route("/sync/pull", get(sync_pull))
+        .route("/sync/push", post(sync_push))
+        .route("/events", get(events_sse))
+        .with_state(state)
 }
 
 fn parse_notes_from_bytes(bytes: &[u8]) -> Result<Vec<Note>, String> {
@@ -36,8 +53,109 @@ fn parse_notes_from_bytes(bytes: &[u8]) -> Result<Vec<Note>, String> {
     Err("无法识别的备份 JSON 格式".to_string())
 }
 
+// ------------------- 新架构端点实现 -------------------
+
+async fn get_notes_new(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<Note>>, (StatusCode, String)> {
+    match db::get_all_notes(&state.pool) {
+        Ok(notes) => Ok(Json(notes)),
+        Err(err) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", err),
+        )),
+    }
+}
+
+async fn update_note_new(
+    State(state): State<AppState>,
+    Json(note): Json<Note>,
+) -> Result<Json<Note>, (StatusCode, String)> {
+    // 1. 本地更新，应用 LWW
+    match db::update_note(&state.pool, note) {
+        Ok(updated) => {
+            // 2. 更新成功后，通过 SSE 广播事件给所有在线客户端
+            let event_payload = serde_json::json!({
+                "type": "note_updated",
+                "note_id": updated.id,
+                "updated_at": updated.updated_at
+            });
+            let _ = state.tx.send(event_payload.to_string());
+            
+            Ok(Json(updated))
+        }
+        Err(err) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to update note: {}", err),
+        )),
+    }
+}
+
+async fn sync_pull(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<Note>>, (StatusCode, String)> {
+    match db::get_all_notes(&state.pool) {
+        Ok(notes) => Ok(Json(notes)),
+        Err(err) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", err),
+        )),
+    }
+}
+
+async fn sync_push(
+    State(state): State<AppState>,
+    Json(incoming_notes): Json<Vec<Note>>,
+) -> Result<Json<Vec<Note>>, (StatusCode, String)> {
+    match db::sync_notes(&state.pool, incoming_notes) {
+        Ok(notes) => {
+            // 广播增量事件
+            let event_payload = serde_json::json!({
+                "type": "notes_synced"
+            });
+            let _ = state.tx.send(event_payload.to_string());
+            
+            Ok(Json(notes))
+        }
+        Err(err) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Sync merge error: {}", err),
+        )),
+    }
+}
+
+async fn events_sse(
+    State(state): State<AppState>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let rx = state.tx.subscribe();
+    
+    // 使用 std::convert::Infallible
+    let stream = stream::unfold(rx, |mut rx| async move {
+        loop {
+            match rx.recv().await {
+                Ok(msg) => {
+                    let event = Event::default().data(msg);
+                    return Some((Ok(event), rx));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    // 当落后时继续获取下一次消息即可
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    // 通道生命周期结束，终结 SSE 流
+                    return None;
+                }
+            }
+        }
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+// ------------------- 兼容旧版端点实现 -------------------
+
 async fn pull_from_ftp(
-    State(pool): State<DbPool>,
+    State(state): State<AppState>,
     Json(config): Json<FtpConfig>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let bytes_opt = FtpStorageProvider::download_sync(&config).await.map_err(|e| {
@@ -71,7 +189,7 @@ async fn pull_from_ftp(
         )
     })?;
 
-    let merged_notes = db::sync_notes(&pool, notes).map_err(|e| {
+    let merged_notes = db::sync_notes(&state.pool, notes).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -90,7 +208,7 @@ async fn pull_from_ftp(
 }
 
 async fn bidirectional_ftp_sync(
-    State(pool): State<DbPool>,
+    State(state): State<AppState>,
     Json(config): Json<FtpConfig>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     // 1. 下载 FTP 备份（若文件存在）
@@ -107,12 +225,12 @@ async fn bidirectional_ftp_sync(
     if let Some(bytes) = bytes_opt {
         if let Ok(ftp_notes) = parse_notes_from_bytes(&bytes) {
             // 合合并入 SQLite，进行 LWW
-            let _ = db::sync_notes(&pool, ftp_notes);
+            let _ = db::sync_notes(&state.pool, ftp_notes);
         }
     }
 
     // 2. 取出合并后的全部最新 LWW 笔记记录
-    let all_notes = db::get_all_notes(&pool).map_err(|e| {
+    let all_notes = db::get_all_notes(&state.pool).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -153,10 +271,9 @@ async fn bidirectional_ftp_sync(
 }
 
 async fn force_sync(
-    State(pool): State<DbPool>,
+    State(state): State<AppState>,
 ) -> Result<Json<Vec<Note>>, (StatusCode, String)> {
-    // 强制同步逻辑：返回最新所有笔记（触发 MDNS 广播在更复杂的设计中）
-    match db::get_all_notes(&pool) {
+    match db::get_all_notes(&state.pool) {
         Ok(notes) => Ok(Json(notes)),
         Err(err) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -166,10 +283,10 @@ async fn force_sync(
 }
 
 async fn sync_to_ftp(
-    State(pool): State<DbPool>,
+    State(state): State<AppState>,
     Json(config): Json<FtpConfig>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let notes = db::get_all_notes(&pool).map_err(|e| {
+    let notes = db::get_all_notes(&state.pool).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({
@@ -207,9 +324,9 @@ async fn sync_to_ftp(
 }
 
 async fn get_notes(
-    State(pool): State<DbPool>,
+    State(state): State<AppState>,
 ) -> Result<Json<Vec<Note>>, (StatusCode, String)> {
-    match db::get_all_notes(&pool) {
+    match db::get_all_notes(&state.pool) {
         Ok(notes) => Ok(Json(notes)),
         Err(err) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -219,10 +336,10 @@ async fn get_notes(
 }
 
 async fn sync_notes(
-    State(pool): State<DbPool>,
+    State(state): State<AppState>,
     Json(incoming_notes): Json<Vec<Note>>,
 ) -> Result<Json<Vec<Note>>, (StatusCode, String)> {
-    match db::sync_notes(&pool, incoming_notes) {
+    match db::sync_notes(&state.pool, incoming_notes) {
         Ok(notes) => Ok(Json(notes)),
         Err(err) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,

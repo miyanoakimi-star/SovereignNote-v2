@@ -118,3 +118,68 @@ pub fn sync_notes(pool: &DbPool, incoming_notes: Vec<Note>) -> Result<Vec<Note>,
     // 重新拉取合并处理后的全部数据，反馈回客户端 (进行两端完全对等的数据合流)
     get_all_notes(pool)
 }
+
+pub fn update_note(pool: &DbPool, note: Note) -> Result<Note, rusqlite::Error> {
+    let mut conn = pool.get().map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    let tx = conn.transaction()?;
+
+    let mut existing_opt: Option<(i64, i32)> = None;
+    {
+        let mut stmt = tx.prepare("SELECT updated_at, deleted FROM notes WHERE id = ?1")?;
+        let mut rows = stmt.query(params![note.id])?;
+        if let Some(row) = rows.next()? {
+            existing_opt = Some((row.get(0)?, row.get(1)?));
+        }
+    }
+
+    match existing_opt {
+        Some((existing_updated_at, _)) => {
+            if note.updated_at > existing_updated_at {
+                tx.execute(
+                    "UPDATE notes SET title = ?1, content = ?2, created_at = ?3, updated_at = ?4, deleted = ?5 WHERE id = ?6",
+                    params![
+                        note.title,
+                        note.content,
+                        note.created_at,
+                        note.updated_at,
+                        if note.deleted { 1 } else { 0 },
+                        note.id
+                    ],
+                )?;
+            }
+        }
+        None => {
+            tx.execute(
+                "INSERT INTO notes (id, title, content, created_at, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    note.id,
+                    note.title,
+                    note.content,
+                    note.created_at,
+                    note.updated_at,
+                    if note.deleted { 1 } else { 0 }
+                ],
+            )?;
+        }
+    }
+
+    tx.commit()?;
+
+    // 取出最新的以返回
+    let conn2 = pool.get().map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    let mut stmt = conn2.prepare("SELECT id, title, content, created_at, updated_at, deleted FROM notes WHERE id = ?1")?;
+    let mut rows = stmt.query(params![note.id])?;
+    if let Some(row) = rows.next()? {
+        let deleted_val: i32 = row.get(5)?;
+        Ok(Note {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            content: row.get(2)?,
+            created_at: row.get(3)?,
+            updated_at: row.get(4)?,
+            deleted: deleted_val != 0,
+        })
+    } else {
+        Ok(note)
+    }
+}

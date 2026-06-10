@@ -6,6 +6,7 @@ use axum::{
 };
 use rust_embed::RustEmbed;
 use mime_guess::from_path;
+use tower_http::cors::{CorsLayer, Any};
 
 mod db;
 mod api;
@@ -58,15 +59,28 @@ async fn main() {
     // 初始化本地 SQLite (数据库文件名：sovereign_note.db)
     let pool = db::init_db("sovereign_note.db");
 
+    let (tx, _) = tokio::sync::broadcast::channel::<String>(100);
+    let app_state = api::AppState {
+        pool,
+        tx,
+    };
+
     // 注册挂载的 API 路由集，嵌套在 /api
-    let api_routes = api::router(pool)
+    let api_routes = api::router(app_state)
         .route("/health", get(health_check));
+
+    // 配置 CORS 允许跨域（移动端和局域网多端同步必备）
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
 
     // 构建应用
     let app = Router::new()
         .nest("/api", api_routes)
         // 使用 fallback 挂载前端静态资源与 SPA 接管逻辑
-        .fallback(fallback_handler);
+        .fallback(fallback_handler)
+        .layer(cors);
 
     // 绑定端口 3000 (支持容器环境与本地调试)
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();

@@ -245,6 +245,28 @@ export default function MainArea({
     }
   };
 
+  const handlePreviewClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!activeNote) return;
+    const target = e.target as HTMLElement;
+    if (target.classList.contains('todo-checkbox')) {
+      const checkboxes = Array.from(e.currentTarget.querySelectorAll('.todo-checkbox'));
+      const index = checkboxes.indexOf(target);
+      if (index !== -1) {
+        let count = 0;
+        const updatedContent = activeNote.content.replace(/([-*]\s+\[)([ xX])(\])/g, (match, prefix, state, suffix) => {
+          if (count === index) {
+            count++;
+            const newState = (state === ' ' ? 'x' : ' ');
+            return `${prefix}${newState}${suffix}`;
+          }
+          count++;
+          return match;
+        });
+        handleNoteChange(activeNote.title, updatedContent, {});
+      }
+    }
+  };
+
   const allFolders = useMemo(() => {
     const foldersSet = new Set<string>();
     notes.filter(n => !n.deleted).forEach((n) => {
@@ -2374,7 +2396,7 @@ jobs:
             {editorMode === 'split' && <div className="w-px bg-slate-800" />}
 
             {(editorMode === 'preview' || editorMode === 'split') && (
-              <div className="flex-1 h-full overflow-y-auto p-8 bg-slate-900 code-preview">
+              <div className="flex-1 h-full overflow-y-auto p-8 bg-slate-900 code-preview" onClick={handlePreviewClick}>
                 <div 
                   className={`${fontClasses.preview} max-w-none text-slate-300 font-sans leading-relaxed`}
                   style={getFontSizeStyle(fontSizeLevel)}

@@ -3,7 +3,7 @@ import { NavState, Note, CalendarEvent } from './types';
 import Sidebar from './components/Sidebar';
 import PartitionBar from './components/PartitionBar';
 import MainArea from './components/MainArea';
-import { getLocalNotes, saveLocalNotes, syncWithBackend } from './lib/api';
+import { getLocalNotes, saveLocalNotes, syncWithBackend, getApiBaseUrl } from './lib/api';
 import { universalExport } from './utils/export';
 import { safeStorage } from './utils/safeStorage';
 
@@ -265,6 +265,49 @@ export default function App() {
     }, 1500); // 防抖 1.5 秒，在用户停止输入后触发
     return () => clearTimeout(timer);
   }, [notes]);
+
+  // 高兼容、低功耗、跨局域网多设备 SSE 实时数据共识监听订阅
+  useEffect(() => {
+    let sse: EventSource | null = null;
+    let reconnectTimeout: any = null;
+
+    function connect() {
+      const baseUrl = getApiBaseUrl();
+      // sse url: swap /api suffix to /api/events
+      const eventsUrl = `${baseUrl.replace(/\/api$/, '')}/api/events`;
+      
+      console.log('Connecting to real-time sync SSE event stream at:', eventsUrl);
+      sse = new EventSource(eventsUrl);
+
+      sse.onmessage = async (event) => {
+        try {
+          console.log('SSE Real-time update signal detected:', event.data);
+          // 接收到任何合法的更新信号，立即执行 LWW 双端数据重组
+          const res = await syncWithBackend();
+          if (res.success) {
+            setNotes(res.notes);
+          }
+        } catch (err) {
+          console.warn('Error reading incoming SSE payload or merging notes:', err);
+        }
+      };
+
+      sse.onerror = () => {
+        console.warn('SSE stream disconnected. Attempting auto-reconnection in 5 seconds...', eventsUrl);
+        if (sse) {
+          sse.close();
+        }
+        reconnectTimeout = setTimeout(connect, 5000);
+      };
+    }
+
+    connect();
+
+    return () => {
+      if (sse) sse.close();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    };
+  }, []);
 
   const activeNote = useMemo(() => {
     return notes.find(n => n.id === activeNoteId) || null;

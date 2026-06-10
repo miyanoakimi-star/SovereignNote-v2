@@ -19,24 +19,28 @@ export function parseMarkdown(md: string): string {
   html = html.replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-sm text-rose-600">$1</code>');
 
   // Headers (# H1 to ###### H6)
-  html = html.replace(/^###### (.*?)$/gm, '<h6 class="text-sm font-semibold text-gray-800 mt-4 mb-2">$1</h6>');
-  html = html.replace(/^##### (.*?)$/gm, '<h5 class="text-base font-semibold text-gray-800 mt-4 mb-2">$1</h5>');
-  html = html.replace(/^#### (.*?)$/gm, '<h4 class="text-lg font-semibold text-gray-900 mt-4 mb-2">$1</h4>');
-  html = html.replace(/^### (.*?)$/gm, '<h3 class="text-xl font-semibold text-gray-900 mt-4 mb-2 border-b border-gray-100 pb-1">$1</h3>');
-  html = html.replace(/^## (.*?)$/gm, '<h2 class="text-2xl font-bold text-gray-900 mt-5 mb-3 border-b border-gray-200 pb-1">$1</h2>');
-  html = html.replace(/^# (.*?)$/gm, '<h1 class="text-3xl font-extrabold text-gray-900 mt-6 mb-4">$1</h1>');
+  html = html.replace(/^###### (.*?)\r?$/gm, '<h6 class="text-sm font-semibold text-slate-400 mt-4 mb-2">$1</h6>');
+  html = html.replace(/^##### (.*?)\r?$/gm, '<h5 class="text-base font-semibold text-slate-300 mt-4 mb-2">$1</h5>');
+  html = html.replace(/^#### (.*?)\r?$/gm, '<h4 class="text-lg font-semibold text-slate-200 mt-4 mb-2">$1</h4>');
+  html = html.replace(/^### (.*?)\r?$/gm, '<h3 class="text-xl font-semibold text-slate-100 mt-4 mb-2 border-b border-slate-800 pb-1">$1</h3>');
+  html = html.replace(/^## (.*?)\r?$/gm, '<h2 class="text-2xl font-bold text-slate-50 mt-5 mb-3 border-b border-slate-800 pb-1">$1</h2>');
+  html = html.replace(/^# (.*?)\r?$/gm, '<h1 class="text-3xl font-extrabold text-white mt-6 mb-4">$1</h1>');
 
   // Blockquotes (> text)
-  html = html.replace(/^> (.*?)$/gm, '<blockquote class="border-l-4 border-indigo-500 pl-4 py-1 my-3 bg-indigo-50/50 text-gray-700 italic">$1</blockquote>');
+  html = html.replace(/^> (.*?)\r?$/gm, '<blockquote class="border-l-4 border-indigo-500 pl-4 py-1 my-3 bg-indigo-950/40 text-slate-300 italic">$1</blockquote>');
+
+  // Todo Lists (- [ ] or - [x])
+  html = html.replace(/^\s*[-*]\s+\[ \]\s+(.*?)\r?$/gm, '<li class="ml-6 list-none text-slate-300 my-1 flex items-start gap-2"><input type="checkbox" class="todo-checkbox mt-1.5 cursor-pointer accent-indigo-500 rounded border-slate-700 bg-slate-800" /> <span>$1</span></li>');
+  html = html.replace(/^\s*[-*]\s+\[[xX]\]\s+(.*?)\r?$/gm, '<li class="ml-6 list-none text-slate-500 line-through my-1 flex items-start gap-2"><input type="checkbox" checked class="todo-checkbox mt-1.5 cursor-pointer accent-indigo-500 rounded border-slate-700 bg-slate-800" /> <span>$1</span></li>');
 
   // Bullet Lists (- or * item)
-  html = html.replace(/^\s*[-*]\s+(.*?)$/gm, '<li class="ml-6 list-disc text-gray-700 my-1">$1</li>');
+  html = html.replace(/^\s*[-*]\s+(.*?)$/gm, '<li class="ml-6 list-disc text-slate-300 my-1">$1</li>');
 
   // Bold (**text**)
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-bold text-gray-900">$1</strong>');
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-bold text-slate-100">$1</strong>');
 
   // Italic (*text*)
-  html = html.replace(/\*([^*]+)\*/g, '<em class="italic text-gray-800">$1</em>');
+  html = html.replace(/\*([^*]+)\*/g, '<em class="italic text-slate-300">$1</em>');
 
   // Hashtags (#tag_name) -> highlights beautifully
   html = html.replace(/(^|\s)#([a-zA-Z0-9_\u4e00-\u9fa5/]+)/g, '$1<span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-indigo-900/40 text-indigo-300 border border-indigo-500/30 cursor-pointer hover:bg-indigo-900/60 transition-colors">#$2</span>');
