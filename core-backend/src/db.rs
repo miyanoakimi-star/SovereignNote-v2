@@ -122,6 +122,28 @@ pub fn get_sync_logs(pool: &DbPool) -> Result<Vec<SyncLog>, rusqlite::Error> {
     Ok(logs)
 }
 
+pub fn get_sync_logs_by_session(pool: &DbPool, session_id: &str) -> Result<Vec<SyncLog>, rusqlite::Error> {
+    let conn = pool.get().map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+    let mut stmt = conn.prepare("SELECT id, timestamp, level, message, session_id, protocol, step FROM sync_logs WHERE session_id = ?1 ORDER BY id ASC")?;
+    let logs_iter = stmt.query_map([session_id], |row| {
+        Ok(SyncLog {
+            id: Some(row.get(0)?),
+            timestamp: row.get(1)?,
+            level: row.get(2)?,
+            message: row.get(3)?,
+            session_id: row.get(4)?,
+            protocol: row.get(5)?,
+            step: row.get(6)?,
+        })
+    })?;
+
+    let mut logs = Vec::new();
+    for log in logs_iter {
+        logs.push(log?);
+    }
+    Ok(logs)
+}
+
 pub fn clear_sync_logs(pool: &DbPool) -> Result<(), rusqlite::Error> {
     let conn = pool.get().map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
     conn.execute("DELETE FROM sync_logs", [])?;

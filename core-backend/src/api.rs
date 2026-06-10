@@ -389,20 +389,28 @@ async fn test_ftp_connection(
     let session_id = format!("ftp-test-{}", uuid::Uuid::new_v4().to_string().get(..8).unwrap_or("run"));
     let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("start"), "INFO", "开始执行手动 FTP 主机登录联通性及远程挂载目录寻址校验");
     
-    match FtpStorageProvider::test_sync(&state.pool, Some(&session_id), &config).await {
+    let test_res = FtpStorageProvider::test_sync(&state.pool, Some(&session_id), &config).await;
+    
+    // Fetch logs written during this test
+    let logs = db::get_sync_logs_by_session(&state.pool, &session_id).unwrap_or_default();
+    
+    match test_res {
         Ok(_) => {
             Ok(Json(serde_json::json!({
                 "success": true,
-                "message": "FTP 身份口令验证及挂载路径寻址大功告成！通道已畅通。"
+                "message": "FTP 身份口令验证及挂载路径寻址大功告成！通道已畅通。",
+                "logs": logs
             })))
         }
         Err(e) => {
             let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("error"), "ERROR", &format!("FTP 连接验证未通过，握手中断。异常: {}", e));
+            let final_logs = db::get_sync_logs_by_session(&state.pool, &session_id).unwrap_or_default();
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({
                     "success": false,
-                    "message": e
+                    "message": e,
+                    "logs": final_logs
                 })),
             ))
         }

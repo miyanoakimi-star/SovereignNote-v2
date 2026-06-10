@@ -94,6 +94,7 @@ export default function MainArea({
   const [webdavLog, setWebdavLog] = useState<string[]>([]);
   // FTP connection test state
   const [ftpTestStatus, setFtpTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [ftpTestResultLogs, setFtpTestResultLogs] = useState<{ timestamp: string; level: string; message: string; step?: string }[]>([]);
   const [backupStatus, setBackupStatus] = useState<string>('');
   const [activeSettingsTab, setActiveSettingsTab] = useState<'ui' | 'sync'>('ui');
 
@@ -603,12 +604,27 @@ export default function MainArea({
   // Handle Testing FTP with Custom Port and Path
   const handleTestFTP = async () => {
     setFtpTestStatus('testing');
+    setFtpTestResultLogs([
+      { 
+        timestamp: new Date().toLocaleTimeString(), 
+        level: 'INFO', 
+        message: '🚀 [1/5 建立物理层] 正在请求本地后台代理模块，进行 FTP 主机探测建立物理 TCP 口令校验链路...', 
+        step: 'connect' 
+      }
+    ]);
     const host = ftpConfig?.host || '';
     const user = ftpConfig?.user || '';
     const pass = ftpConfig?.pass || '';
 
     if (!host || !user || !pass) {
       setFtpTestStatus('error');
+      const errLog = {
+        timestamp: new Date().toLocaleTimeString(),
+        level: 'ERROR',
+        message: '❌ 探测校验中断: 主机或端口、用户名或安全登录口令为空！请务必填写这三项。',
+        step: 'validate'
+      };
+      setFtpTestResultLogs(prev => [...prev, errLog]);
       setBackupStatus('FTP 连接校验未通过。错误详情: 主机、用户名和密码不能为空值。');
       return;
     }
@@ -621,19 +637,56 @@ export default function MainArea({
         body: JSON.stringify(ftpConfig)
       });
       const data = await res.json();
+      if (data.logs && Array.isArray(data.logs)) {
+        setFtpTestResultLogs(data.logs);
+      }
       if (res.ok && data.success) {
         setFtpTestStatus('success');
         setBackupStatus('FTP 身份授权及挂载路径寻址成功！通道已联通。');
       } else {
         setFtpTestStatus('error');
         setBackupStatus('FTP 错误: ' + (data.message || '连接失败或登录无效'));
+        if (!data.logs) {
+          setFtpTestResultLogs(prev => [...prev, {
+            timestamp: new Date().toLocaleTimeString(),
+            level: 'ERROR',
+            message: `❌ 网络连接校验失败: ${data.message || '网关返回异常'}`,
+            step: 'error'
+          }]);
+        }
       }
     } catch (err: any) {
       setFtpTestStatus('error');
       setBackupStatus('FTP 连接测试失败: 无法连接本地后台代理节点 (' + err.message + ')');
+      setFtpTestResultLogs(prev => [...prev, {
+        timestamp: new Date().toLocaleTimeString(),
+        level: 'ERROR',
+        message: `❌ 因为底层通信受阻，无法连通至本地后台运行微内核。报错详情: ${err.message}`,
+        step: 'network'
+      }]);
     } finally {
       fetchRealSyncLogs();
     }
+  };
+
+  const copyFtpTestLogs = () => {
+    if (ftpTestResultLogs.length === 0) {
+      alert("当前没有可复制的 FTP 探测日志。");
+      return;
+    }
+    const txt = ftpTestResultLogs.map(l => `[${l.timestamp}] [${l.level}] [步骤: ${l.step || '常规'}] ${l.message}`).join('\n');
+    navigator.clipboard.writeText(txt).then(() => {
+      alert("📋 FTP 探测调试日志已复制到剪贴板！");
+    });
+  };
+
+  const exportFtpTestLogs = () => {
+    if (ftpTestResultLogs.length === 0) {
+      alert("当前没有可导出的 FTP 探测日志。");
+      return;
+    }
+    const txt = ftpTestResultLogs.map(l => `[${l.timestamp}] [${l.level}] [步骤: ${l.step || '常规'}] ${l.message}`).join('\n');
+    universalExport(txt, `ftp_test_diag_logs_${Date.now()}.txt`, "text/plain");
   };
 
   // Export custom monthly calendar events (schedules) to JSON
@@ -1155,6 +1208,70 @@ export default function MainArea({
                         />
                       </div>
                     </div>
+
+                    {/* REALTIME FTP DIAGNOSTICS LOG WINDOW */}
+                    {ftpTestResultLogs.length > 0 && (
+                      <div className="bg-slate-950 rounded-xl border border-slate-900 overflow-hidden shadow-inner flex flex-col">
+                        <div className="flex items-center justify-between px-3.5 py-2 bg-slate-900 border-b border-slate-850">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 font-mono flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            FTP 双向握手协议深度探测诊断流
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={copyFtpTestLogs}
+                              className="text-[10px] text-indigo-400 hover:text-indigo-300 font-medium px-2 py-1 rounded bg-slate-950 hover:bg-slate-800 transition"
+                            >
+                              📋 复制日志
+                            </button>
+                            <button
+                              type="button"
+                              onClick={exportFtpTestLogs}
+                              className="text-[10px] text-emerald-400 hover:text-emerald-300 font-medium px-2 py-1 rounded bg-slate-950 hover:bg-slate-800 transition"
+                            >
+                              保存 / 导出诊断书
+                            </button>
+                          </div>
+                        </div>
+                        <div className="p-3.5 font-mono text-[11px] leading-relaxed space-y-2 max-h-[180px] overflow-y-auto select-text">
+                          {ftpTestResultLogs.map((log, index) => {
+                            let levelBadge = "text-slate-500 bg-slate-900";
+                            let textStyle = "text-slate-300";
+                            if (log.level === 'ERROR') {
+                              levelBadge = "text-rose-400 bg-rose-950/40 border border-rose-900/40 font-extrabold px-1.5 rounded";
+                              textStyle = "text-rose-200 bg-rose-950/10 p-1.5 rounded border border-rose-950/20";
+                            } else if (log.level === 'SUCCESS') {
+                              levelBadge = "text-emerald-400 bg-emerald-950/40 border border-emerald-900/40 font-bold px-1.5 rounded";
+                              textStyle = "text-emerald-300";
+                            } else if (log.level === 'WARN') {
+                              levelBadge = "text-amber-400 bg-amber-950/40 border border-amber-900/40 font-bold px-1.5 rounded";
+                              textStyle = "text-amber-250";
+                            }
+
+                            return (
+                              <div key={index} className={`flex items-start gap-2 border-b border-rose-950/5 pb-1.5 last:border-0 last:pb-0 ${textStyle}`}>
+                                <span className="text-slate-600 select-none whitespace-nowrap">
+                                  [{log.timestamp.includes(' ') ? log.timestamp.split(' ')[1] : log.timestamp}]
+                                </span>
+                                {log.step && (
+                                  <span className="bg-slate-900 text-indigo-400 text-[10px] px-1 rounded border border-slate-850 select-none">
+                                    {log.step.toUpperCase()}
+                                  </span>
+                                )}
+                                <span className={`text-[10px] uppercase font-bold select-none ${levelBadge}`}>
+                                  {log.level}
+                                </span>
+                                <span className="flex-1 break-all whitespace-pre-wrap">
+                                  {log.message}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex flex-wrap gap-3 pt-2">
                       <button
                         type="button"
