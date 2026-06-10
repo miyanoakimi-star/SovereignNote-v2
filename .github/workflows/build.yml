@@ -179,6 +179,7 @@ jobs:
       - name: ⚡ 构建 Android APK 原生包 (Debug/Release)
         run: |
           cd android
+          gradle wrapper --gradle-version 7.0
           chmod +x gradlew
           ./gradlew assembleRelease
           ./gradlew assembleDebug
