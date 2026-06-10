@@ -150,6 +150,7 @@ jobs:
       - name: ☕ Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
+          gradle-version: '7.0'
           validate-wrappers: false
 
       - name: 🧼 暴力重构并净化所有 Android 坏图资产 (绝对路径版)
@@ -179,10 +180,8 @@ jobs:
       - name: ⚡ 构建 Android APK 原生包 (Debug/Release)
         run: |
           cd android
-          gradle wrapper --gradle-version 7.0
-          chmod +x gradlew
-          ./gradlew assembleRelease
-          ./gradlew assembleDebug
+          gradle assembleRelease
+          gradle assembleDebug
 
       - name: 💾 暂存 Android 安装包
         uses: actions/upload-artifact@v4
