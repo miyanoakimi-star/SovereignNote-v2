@@ -11,6 +11,8 @@ use tower_http::cors::{CorsLayer, Any};
 mod db;
 mod api;
 mod ftp;
+pub mod lww;
+pub mod kernel;
 
 #[derive(RustEmbed)]
 #[folder = "../dist"] // 指向前端 Vite 构建产物
@@ -60,9 +62,19 @@ async fn main() {
     let pool = db::init_db("sovereign_note.db");
 
     let (tx, _) = tokio::sync::broadcast::channel::<String>(100);
+    
+    let logger = kernel::LogBus {
+        pool: pool.clone(),
+        sse: tx.clone()
+    };
+    let mut kernel_instance = kernel::Kernel::new(logger);
+    kernel_instance.boot().await;
+    let kernel_arc = std::sync::Arc::new(tokio::sync::Mutex::new(kernel_instance));
+
     let app_state = api::AppState {
-        pool,
+        pool: pool.clone(),
         tx,
+        kernel: kernel_arc,
     };
 
     // 注册挂载的 API 路由集，嵌套在 /api

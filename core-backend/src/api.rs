@@ -10,11 +10,14 @@ use crate::db::{self, DbPool, Note};
 use crate::ftp::{FtpConfig, FtpStorageProvider};
 use futures_util::stream::{self, Stream};
 use std::convert::Infallible;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[derive(Clone)]
 pub struct AppState {
     pub pool: DbPool,
     pub tx: tokio::sync::broadcast::Sender<String>,
+    pub kernel: Arc<Mutex<crate::kernel::Kernel>>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -397,103 +400,44 @@ async fn test_lww_connection(
     Json(payload): Json<LwwTestRequestWrapper>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let session_id = payload.session_id.clone();
-    let protocol = Some("lww");
     
-    // Kernel probes
-    let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "lww", "receive", "start", "收到前端请求: 执行手动 LWW 联通性探测");
-    let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "lww", "forward", "start", "转发控制权至 Rust 后端连接层...");
-
-    let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), protocol, Some("start"), "INFO", "开始执行手动局域网 P2P LWW 协同同步协议深度握手侦测校验...");
-
-    // Step 1: 物理存储池与 SQLite 连接池状态核验
-    let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), protocol, Some("connect"), "INFO", "【连接测试】[Step 1/4] 验证底层本地 SQLite 缓存数据池读写链路...");
-    let notes_count = match db::get_all_notes(&state.pool) {
-        Ok(notes) => {
-            let msg = format!("【连接测试】核验成功。SQLite 数据库存储连接健康，当前持久化已归档原子知识节点数: {} 篇。", notes.len());
-            let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), protocol, Some("connect"), "SUCCESS", &msg);
-            notes.len()
-        }
-        Err(e) => {
-            let err_msg = format!("【连接测试】SQLite 本地存储数据环路断裂或严重损坏，无法完成数据读盘: {}", e);
-            let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), protocol, Some("connect"), "ERROR", &err_msg);
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "success": false,
-                    "message": err_msg,
-                    "logs": db::get_sync_logs_by_session(&state.pool, &session_id).unwrap_or_default()
-                }))
-            ));
-        }
+    let req = crate::kernel::KernelRequest {
+        id: session_id.clone(),
+        channel: crate::kernel::SyncChannel::LWW,
+        action: "test".to_string(),
+        payload: serde_json::Value::Null,
     };
 
-    // Step 2: LWW-Element-Set 最终一致性算法引擎装载校验
-    let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), protocol, Some("lww_merge"), "INFO", "【连接测试】[Step 2/4] 校验 LWW (Last-Write-Wins) 最终一致性协调仲裁决策引擎...");
+    let mut kernel = state.kernel.lock().await;
+    kernel.dispatch(req).await;
+    drop(kernel); // Release lock
     
-    // 我们在这里模拟一个虚无的测试数据，并在事务里进行一次试探性 LWW 回滚式冲突判定
-    let test_uuid = "lww-consensus-v2-test-stub";
-    let now = chrono::Local::now().timestamp_millis();
-    let mock_incoming = vec![crate::db::Note {
-        id: test_uuid.to_string(),
-        title: "LWW-Consensus-Probe".to_string(),
-        content: "Probing conflict engine...".to_string(),
-        created_at: now,
-        updated_at: now,
-        deleted: false,
-    }];
-    
-    match db::sync_notes(&state.pool, mock_incoming) {
-        Ok(_) => {
-            if let Ok(mut conn) = state.pool.get() {
-                let _ = conn.execute("DELETE FROM notes WHERE id = ?1", [test_uuid]);
-            }
-            let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), protocol, Some("lww_merge"), "SUCCESS", "【连接测试】LWW 冲突协商机制验证成功！决策模块支持最后写入赢策略、双向反向纠偏及旧版本丢弃。");
-        }
-        Err(e) => {
-            let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "lww", "response", "error", &format!("LWW合并探测失败: {}", e));
-            let err_msg = format!("【连接测试】冲突协商仲裁引擎工作异常，无法协调多源数据状态: {}", e);
-            let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), protocol, Some("lww_merge"), "ERROR", &err_msg);
-            let mut logs = db::get_probe_events(&state.pool).unwrap_or_default()
-                .into_iter()
-                .filter(|log| log.session_id == session_id)
-                .collect::<Vec<_>>();
-            logs.reverse();
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "success": false,
-                    "message": err_msg,
-                    "logs": logs
-                }))
-            ));
-        }
-    }
-
-    // Step 3: SSE 广播信道端口热状态校验
-    let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), protocol, Some("broadcast"), "INFO", "【连接测试】[Step 3/4] 正在检测本地多端口多端 SSE 广播信道物理态...");
-    let receiver_count = state.tx.receiver_count();
-    let msg = format!("【连接测试】SSE 模块工作就绪。当前局域网订阅此端点并积极保持连通的独立边缘终端数量: {} 个。", receiver_count);
-    
-    if state.tx.send("LWW_PROBE_SIGNAL".to_string()).is_ok() {
-        let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), protocol, Some("broadcast"), "SUCCESS", &format!("{} 广播测试探针发放正常，下游物理层无损消费完毕。", msg));
-    } else {
-        let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), protocol, Some("broadcast"), "WARN", &format!("{} 管道虽然可用，但当前无可供直接消费的有源活动终端，消息流已转储。这属于局域网单机状态下的预期内工作情况。", msg));
-    }
-
-    // Step 4: 最终一致性握手闭环
-    let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), protocol, Some("end"), "SUCCESS", &format!("【连接测试】[Step 4/4] 局局网广播及 LWW 本地一致性健康检测圆满结束。总计扫描并保全 {} 个原子改动，分布式自律链路完好！", notes_count));
-
-    let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "lww", "response", "ok", "LWW 测试返回成功结果，诊断全数绿灯通行");
+    // The details were handled in dispatch/LWW mock for this case
+    // We now just check the log trace and return
     let mut logs = db::get_probe_events(&state.pool).unwrap_or_default()
         .into_iter()
         .filter(|log| log.session_id == session_id)
         .collect::<Vec<_>>();
     logs.reverse();
-    Ok(Json(serde_json::json!({
-        "success": true,
-        "message": "局域网 P2P LWW 协同同步协议通过全方位健康测试，链路一切正常！",
-        "logs": logs
-    })))
+
+    let has_error = logs.iter().any(|l| l.status == "error");
+
+    if !has_error {
+        Ok(Json(serde_json::json!({
+            "success": true,
+            "message": "局域网 P2P LWW 协同同步协议通过全方位健康测试，链路一切正常！",
+            "logs": logs
+        })))
+    } else {
+        Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "message": "LWW 探测在链路层发生产生阻塞阻断！",
+                "logs": logs
+            }))
+        ))
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -507,47 +451,44 @@ async fn test_ftp_connection(
     Json(payload): Json<FtpTestRequestWrapper>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let session_id = payload.session_id.clone();
-    let config = payload.config;
     
-    // Kernel logs
-    let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "ftp", "receive", "start", "收到前端请求: 执行手动 FTP 联通性探测");
-    let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "ftp", "forward", "start", "转发控制权至 Rust 后端连接层...");
+    let mut payload_json = serde_json::to_value(&payload.config).unwrap_or(serde_json::Value::Null);
+    
+    let req = crate::kernel::KernelRequest {
+        id: session_id.clone(),
+        channel: crate::kernel::SyncChannel::FTP,
+        action: "test".to_string(),
+        payload: payload_json,
+    };
 
-    let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("start"), "INFO", "开始执行手动 FTP 主机登录联通性及远程挂载目录寻址校验");
+    let mut kernel = state.kernel.lock().await;
+    kernel.dispatch(req).await;
+    drop(kernel); // Release the lock before querying db
+
+    let mut logs = db::get_probe_events(&state.pool).unwrap_or_default()
+        .into_iter()
+        .filter(|log| log.session_id == session_id)
+        .collect::<Vec<_>>();
+    logs.reverse();
     
-    let test_res = FtpStorageProvider::test_sync(&state.pool, Some(&session_id), &config).await;
-    
-    match test_res {
-        Ok(_) => {
-            let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "ftp", "response", "ok", "FTP后端测试通过，返回JSON");
-            let mut logs = db::get_probe_events(&state.pool).unwrap_or_default()
-                .into_iter()
-                .filter(|log| log.session_id == session_id)
-                .collect::<Vec<_>>();
-            logs.reverse();
-            Ok(Json(serde_json::json!({
-                "success": true,
-                "message": "FTP 身份口令验证及挂载路径寻址大功告成！通道已畅通。",
+    // Evaluate if there's any error in the kernel trace for this sequence
+    let has_error = logs.iter().any(|l| l.status == "error");
+
+    if !has_error {
+        Ok(Json(serde_json::json!({
+            "success": true,
+            "message": "FTP 连接诊断流水线探测执行完成，且测试校验全环境畅通。",
+            "logs": logs
+        })))
+    } else {
+        Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "success": false,
+                "message": "FTP 探测在链路层遇到阻塞错误！",
                 "logs": logs
-            })))
-        }
-        Err(e) => {
-            let _ = db::add_probe_event(&state.pool, &session_id, "kernel", "ftp", "response", "error", &format!("FTP测试出错返回: {}", e));
-            let _ = db::add_sync_log_detailed(&state.pool, Some(&session_id), Some("ftp"), Some("error"), "ERROR", &format!("FTP 连接验证未通过，握手中断。异常: {}", e));
-            let mut logs = db::get_probe_events(&state.pool).unwrap_or_default()
-                .into_iter()
-                .filter(|log| log.session_id == session_id)
-                .collect::<Vec<_>>();
-            logs.reverse(); // put into chronological order
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "success": false,
-                    "message": e,
-                    "logs": logs
-                })),
-            ))
-        }
+            })),
+        ))
     }
 }
 

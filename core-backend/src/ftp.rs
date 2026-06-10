@@ -256,3 +256,46 @@ impl FtpStorageProvider {
         }
     }
 }
+
+pub async fn handle_kernel_request(req: crate::kernel::KernelRequest, log: &crate::kernel::LogBus) -> Result<(), String> {
+    log.info(&req.id, "ftp", "connect", "连接FTP");
+    if let Some(host) = req.payload.get("host").and_then(|h| h.as_str()) {
+        let host = if host.contains(':') { host.to_string() } else { format!("{}:21", host) };
+        let user = req.payload.get("user").and_then(|u| u.as_str()).unwrap_or("anonymous");
+        let pass = req.payload.get("pass").and_then(|p| p.as_str()).unwrap_or("");
+        
+        let mut ftp = match suppaftp::AsyncFtpStream::connect(&host).await {
+            Ok(s) => s,
+            Err(e) => return Err(e.to_string()),
+        };
+        log.ok(&req.id, "ftp", "connect", "TCP连接成功");
+
+        if let Err(e) = ftp.login(user, pass).await {
+            return Err(e.to_string());
+        }
+        log.ok(&req.id, "ftp", "login", "登录成功");
+
+        let _ = ftp.cwd("/").await; // Fallback or assume root
+
+        if req.action == "test" {
+            log.ok(&req.id, "ftp", "test", "FTP 测试探测完全通过");
+        } else if req.action == "upload" {
+            log.info(&req.id, "ftp", "upload", "开始上传");
+            if let Some(data) = req.payload.get("data").and_then(|d| d.as_str()) {
+                let data_bytes = data.as_bytes();
+                let mut slice = &data_bytes[..];
+                if let Err(e) = ftp.put_file("sovereign_backup.json", &mut slice).await {
+                     return Err(e.to_string());
+                }
+                log.ok(&req.id, "ftp", "upload", "上传完成");
+            } else {
+                log.warn(&req.id, "ftp", "upload", "没有要上传的数据");
+            }
+        }
+        
+        let _ = ftp.quit().await;
+        Ok(())
+    } else {
+        Err("Missing host configuration in payload".to_string())
+    }
+}
