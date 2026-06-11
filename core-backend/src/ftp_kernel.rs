@@ -101,7 +101,10 @@ impl FtpActor {
     /// 核心重构：基于命令派发的原子阶段执行器
     /// 彻底剪除了异步闭包，配合 `BoxFuture<'_, ...>` 保证 `&mut self` 在 loop 中拥有绝对安全的生命周期
     async fn execute_stage(&mut self, stage: FtpStage) -> Result<(), String> {
-        let cfg = self.config.get(&stage).ok_or_else(|| "Stage config missing".to_string())?;
+        let (stage_timeout, stage_retry) = {
+            let cfg = self.config.get(&stage).ok_or_else(|| "Stage config missing".to_string())?;
+            (cfg.timeout, cfg.retry)
+        };
         let mut attempts = 0;
 
         self.emit(stage, "stage_start", &format!("Initiating protocol phase: {:?}", stage)).await;
@@ -122,7 +125,7 @@ impl FtpActor {
             };
 
             // 精准实施局部单阶段超时控制，杜绝全局 Watchdog 误杀
-            match timeout(cfg.timeout, io_future).await {
+            match timeout(stage_timeout, io_future).await {
                 // 情况一：I/O 在预算内完成且协议执行成功
                 Ok(Ok(_)) => {
                     self.emit(stage, "stage_ok", "Phase completed successfully.").await;
@@ -130,7 +133,7 @@ impl FtpActor {
                 }
                 // 情况二：I/O 未超时，但底层网络或协议报错（如密码错、握手断开、404 HTML 意外报文）
                 Ok(Err(err_msg)) => {
-                    if attempts > cfg.retry {
+                    if attempts > stage_retry {
                         self.emit(stage, "stage_failed", &format!("Aborted. Exceeded max retries. Error: {}", err_msg)).await;
                         return Err(err_msg);
                     }
@@ -138,7 +141,7 @@ impl FtpActor {
                 }
                 // 情况三：I/O 彻底超时（局部看门狗平滑拦截）
                 Err(_) => {
-                    if attempts > cfg.retry {
+                    if attempts > stage_retry {
                         self.emit(stage, "timeout_failed", "Aborted. Critical timeout restriction triggered.").await;
                         return Err(format!("Phase {:?} timed out permanently.", stage));
                     }
