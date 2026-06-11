@@ -46,7 +46,7 @@ pub fn router(state: AppState) -> Router {
         // Three-Layer Sync Probe System
         .route("/probe", post(add_probe_event_api))
         .route("/probe/list", get(get_probe_events_api))
-        .route("/health", get(|| async { axum::Json(serde_json::json!({ "status": "ready", "version": "2.4.2" })) }))
+        .route("/health", get(|| async { axum::Json(serde_json::json!({ "status": "ready", "version": "3.2.2" })) }))
         .nest("/backup", crate::backup::backup_routes())
         .with_state(state)
 }

@@ -1,6 +1,20 @@
 # Changelog
 
-## v3.0.0 (Latest)
+## v3.2.2 (Latest)
+
+### 🚀 双核自愈架构与多端生态强化 (Dual-Core Self-Healing & Ecosystem Guard)
+本次更新带来了针对底层核心存储、异步网络模型及跨平台环境路由的重大修复，实现全场景无卡顿无闪退运行：
+
+- **自愈式数据存储与启动看门狗 (Self-Healing Storage Guard)**:
+  彻底修复了 Windows 版本在特定环境下由于数据库文件被占用或底层 DDL 锁冲突导致的闪退问题。当检测到主数据库路径故障时，启动看门狗将自动触发智能自愈与灾备归档。
+- **高性能离散状态机 (`ftp_kernel`)**:
+  将 FTP 框架重构为由单所有权驱动的 Actor 状态机。彻底剪除多重异步闭包引起的可变借用多重捕获阻碍。内嵌 200ms 退避抖动（Jitter Buffer），强化在弱网与老旧 Android 设备上的通道稳定性。
+- **跨平台多端 API 盾牌 (Capacitor Base URL Shield)**:
+  优化 Capacitor 混合环境下的内置 API 底网路由。自动区分原生移动端与 Web 渲染层，保障 Android 真机的连通状态。
+- **环境级本地日志归档 (Companion Native Journaling)**:
+  自动捕获 Windows 与跨端后台在生命周期内的 Panic、SQL 事务断链等致命异常，并同步物理归档至主执行文件同级目录下的 `sovereign_backend.log` 文本中，大幅降低诊断成本。
+
+## v3.0.0
 
 ### 🚀 终极同步架构升级与状态持久化 (Major Sync & State Upgrade)
 本次更新为 SovereignNote 带来了全新的里程碑——**完整配置与状态协同同步系统**。

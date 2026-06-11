@@ -11,6 +11,7 @@ use tower_http::cors::{CorsLayer, Any};
 mod db;
 mod api;
 mod ftp;
+pub mod ftp_kernel;
 pub mod lww;
 pub mod kernel;
 pub mod backup;

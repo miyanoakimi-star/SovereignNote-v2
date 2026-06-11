@@ -248,12 +248,11 @@ jobs:
             * \`SovereignNote_Android_Debug.apk\` (Android 移动端测试包，推荐直接安装体验)
             * \`SovereignNote_Android_Release_Unsigned.apk\` (Android 移动端未签名包，需自行签名后部署)
             
-            ### 🛠️ 核心功能与 2.4.2 架构升级说明：
-            1. **三链路内核状态机 (Kernel State Machine)**：重构底层微内核分发机制，FTP/LWW/WebDAV 事件统一通过后端 `KernelRequest` 调度队列轮询流转，支持 `KernelState`（Offline/Booting/Ready/Degraded）自律式回滚与级联路由容错。
-            2. **双通道高内聚日志总线 (`LogBus`)**：单点日志覆盖与丢失隐患彻底根除。现在所有的探测记录会双写至底层 SQLite 本地数据库归档（永久存储）并同时经由 SSE (Server-Sent Events) 单向信道对前端进行毫秒级实时状态广播。
-            3. **前置防死锁监控看门狗 (Watchdog Detector)**：前端联动建立 3 秒卡点自检测拦截，在上一环节未响应或 Rust 驱动进程偶发性崩溃时，看门狗自动介入并给出故障追踪指引，杜绝界面无限期白屏挂起。
-            4. **接口解析鲁棒性修复**：深度优化内部转发与跨站代理行为，完美排除因代理服务器偶尔返回 HTML 页面而触发的前端 `Unexpected token < in JSON` 逻辑报错漏洞。
-            5. **文件夹级联分类与高性能内嵌库**：完美支持笔记多级文件夹管理与侧边栏计数联动，彻底解决了 Windows 环境下历史版本的 `E0505` 生命周期锁，运行极速顺滑。
+            ### 🛠️ 核心功能与 3.2.2 架构升级说明：
+            1. **双核同步引擎自愈系统 (Sovereign Dual-Core Self-Healing Engine)**：在 Actor 模型及状态机层面彻底解决了原本 Windows 部分版本在启动初始化 SQLite 时发生闪退崩溃的生存期隐患。
+            2. **多端 API 基址解析器 (Capacitor Routing Shield)**：重构了 Android (Capacitor) 及浏览器端下的 apiBase 动态解析规则，屏蔽本地回环路由的解析死锁。
+            3. **高内聚本地日志归档 (Companion Native Journaling)**：Windows 桌面端启动后将全生命周期日志并归档输出至邻近执行文件夹下的 `sovereign_backend.log` 文本日志。
+            4. **高性能 FTP 状态机逻辑 (`ftp_kernel`)**：重构 FTP 命令派发匹配机制，彻底消除 Tokio 线程阻塞以及闭包多重变异借用借用冲突，并内嵌 200ms 退避抖动缓冲，彻底保障弱网及旧硬件兼容。
           draft: false
           prerelease: false
         env:
