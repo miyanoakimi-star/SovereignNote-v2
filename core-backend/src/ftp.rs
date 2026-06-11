@@ -284,25 +284,16 @@ pub async fn handle_kernel_request(req: crate::kernel::KernelRequest, log: &crat
             log.info(&req.id, "ftp", "banner", "[3/8] 收到220 Banner (TCP Handshake confirmed)");
             // Suppaftp async does not reliably expose welcome_msg safely, skipping actual fetch to avoid compilation errors
 
-            log.info(&req.id, "ftp", "user", &format!("[4/8] 发送USER -> {}", user));
+            log.info(&req.id, "ftp", "login", &format!("[4/8] 开始 Login (USER -> {}, PASS -> ***)", user));
             let start = std::time::Instant::now();
-            if let Err(e) = ftp.user(user).await {
-                let err = format!("[FTP][USER] 用户验证失败: {:?} 耗时: {:?}", e, start.elapsed());
-                log.error(&req.id, "ftp", "user", &err);
+            if let Err(e) = ftp.login(user, pass).await {
+                let err = format!("[FTP][LOGIN] 登录验证失败: {:?} 耗时: {:?}", e, start.elapsed());
+                log.error(&req.id, "ftp", "login", &err);
                 return Err(err);
             }
-            log.ok(&req.id, "ftp", "user", &format!("[FTP][USER] 用户名发送成功, 耗时: {:?}", start.elapsed()));
+            log.ok(&req.id, "ftp", "login", &format!("[FTP][LOGIN] 登录验证成功, 耗时: {:?}", start.elapsed()));
 
-            log.info(&req.id, "ftp", "pass", "[5/8] 发送PASS -> ***");
-            let start = std::time::Instant::now();
-            if let Err(e) = ftp.pass(pass).await {
-                let err = format!("[FTP][PASS] 密码验证失败: {:?} 耗时: {:?}", e, start.elapsed());
-                log.error(&req.id, "ftp", "pass", &err);
-                return Err(err);
-            }
-            log.ok(&req.id, "ftp", "pass", &format!("[FTP][PASS] 密码验证成功, 耗时: {:?}", start.elapsed()));
-
-            log.info(&req.id, "ftp", "list", "[6/8] 执行LIST -> 校验数据通道");
+            log.info(&req.id, "ftp", "list", "[5/8] 执行LIST -> 校验数据通道");
             let start = std::time::Instant::now();
             match ftp.list(None).await {
                 Ok(list) => {
