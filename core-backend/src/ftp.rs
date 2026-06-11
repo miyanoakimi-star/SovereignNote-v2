@@ -260,8 +260,8 @@ impl FtpStorageProvider {
 pub async fn handle_kernel_request(req: crate::kernel::KernelRequest, log: &crate::kernel::LogBus) -> Result<(), String> {
     if let Some(host) = req.payload.get("host").and_then(|h| h.as_str()) {
         let host = if host.contains(':') { host.to_string() } else { format!("{}:21", host) };
-        let user = req.payload.get("user").and_then(|u| u.as_str()).unwrap_or("anonymous");
-        let pass = req.payload.get("pass").and_then(|p| p.as_str()).unwrap_or("");
+        let user = req.payload.get("user").and_then(|u| u.as_str()).unwrap_or("anonymous").trim();
+        let pass = req.payload.get("pass").and_then(|p| p.as_str()).unwrap_or("").trim();
         let path = req.payload.get("path").and_then(|p| p.as_str()).unwrap_or("");
 
         if req.action == "test" {
@@ -284,10 +284,11 @@ pub async fn handle_kernel_request(req: crate::kernel::KernelRequest, log: &crat
             log.info(&req.id, "ftp", "banner", "[3/8] 收到220 Banner (TCP Handshake confirmed)");
             // Suppaftp async does not reliably expose welcome_msg safely, skipping actual fetch to avoid compilation errors
 
-            log.info(&req.id, "ftp", "login", &format!("[4/8] 开始 Login (USER -> {}, PASS -> ***)", user));
+            let log_msg = format!("[FTP][LOGIN]\n\nUSER = {}\nUSER_LEN = {}\n\nPASS_LEN = {}\n", user, user.len(), pass.len());
+            log.info(&req.id, "ftp", "login", &format!("[4/8] 开始 Login\n{}", log_msg));
             let start = std::time::Instant::now();
             if let Err(e) = ftp.login(user, pass).await {
-                let err = format!("[FTP][LOGIN] 登录验证失败: {:?} 耗时: {:?}", e, start.elapsed());
+                let err = format!("{}\n{}\n耗时: {:?}", log_msg, e, start.elapsed());
                 log.error(&req.id, "ftp", "login", &err);
                 return Err(err);
             }
