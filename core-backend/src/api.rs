@@ -458,7 +458,7 @@ async fn test_ftp_connection(
         "user": payload.config.user,
         "path": payload.config.path,
         "secure": payload.config.secure,
-        "pass": "***"
+        "pass": payload.config.pass
     });
     
     let req = crate::kernel::KernelRequest {
