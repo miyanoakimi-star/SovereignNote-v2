@@ -9,6 +9,7 @@ use axum::{
 use crate::db::{self, DbPool, Note};
 use crate::ftp::{FtpConfig, FtpStorageProvider};
 use futures_util::stream::{self, Stream};
+use futures_util::StreamExt;
 use std::convert::Infallible;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -46,7 +47,7 @@ pub fn router(state: AppState) -> Router {
         // Three-Layer Sync Probe System
         .route("/probe", post(add_probe_event_api))
         .route("/probe/list", get(get_probe_events_api))
-        .route("/health", get(|| async { axum::Json(serde_json::json!({ "status": "ready", "version": "3.2.2" })) }))
+        .route("/health", get(health_check))
         .nest("/backup", crate::backup::backup_routes())
         .with_state(state)
 }
@@ -157,14 +158,52 @@ async fn sync_push(
     }
 }
 
+async fn health_check(
+    State(state): State<AppState>,
+) -> axum::Json<serde_json::Value> {
+    let kernel = state.kernel.lock().await;
+    let state_str = match kernel.state {
+        crate::kernel::KernelState::Offline => "offline",
+        crate::kernel::KernelState::Booting => "booting",
+        crate::kernel::KernelState::Ready => "ready",
+        crate::kernel::KernelState::Degraded => "degraded",
+        crate::kernel::KernelState::CircuitOpen => "circuit_open",
+    };
+    axum::Json(serde_json::json!({
+        "status": "ready",
+        "kernel_state": state_str,
+        "version": "3.2.2"
+    }))
+}
+
 async fn events_sse(
     State(state): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let _ = db::add_sync_log(&state.pool, "INFO", "SSE 实时订阅：新增客户端通道已连接。");
     let rx = state.tx.subscribe();
     
-    // 使用 std::convert::Infallible
-    let stream = stream::unfold(rx, |mut rx| async move {
+    // We can send an initial ready signal when the client connects
+    let handshake_event = {
+        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let ready_json = serde_json::json!({
+            "type": "probe_event",
+            "data": {
+                "id": None::<i32>,
+                "session_id": "kernel-sse-handshake",
+                "layer": "kernel",
+                "protocol": "kernel",
+                "step": "boot",
+                "status": "ok",
+                "message": "Kernel fully initialized via live SSE handshake.",
+                "timestamp": Some(timestamp),
+            }
+        });
+        Event::default().data(ready_json.to_string())
+    };
+    
+    let first_stream = stream::once(async move { Ok(handshake_event) });
+    
+    let rest_stream = stream::unfold(rx, |mut rx| async move {
         loop {
             match rx.recv().await {
                 Ok(msg) => {
@@ -183,7 +222,9 @@ async fn events_sse(
         }
     });
 
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    let combined_stream = first_stream.chain(rest_stream);
+
+    Sse::new(combined_stream).keep_alive(KeepAlive::default())
 }
 
 // ------------------- 兼容旧版端点实现 -------------------

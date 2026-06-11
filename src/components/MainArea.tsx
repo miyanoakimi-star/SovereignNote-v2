@@ -682,7 +682,7 @@ export default function MainArea({
 
       // Check Kernel status before attempting connection
       let kernelReady = false;
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < 15; i++) {
         try {
           const check = await fetch(`${apiBase}/health`);
           if (check.ok) { kernelReady = true; break; }
