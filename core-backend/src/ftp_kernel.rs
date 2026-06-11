@@ -3,12 +3,15 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
+// 引入 futures-util 核心 Trait，用于开启类型擦除的 .boxed() 零成本限制
+use futures_util::future::BoxFuture;
+use futures_util::FutureExt;
 
 // =====================================================================
-// 1. 状态与事件定义 (State & Event System)
+// 1. 状态与事件系统定义 (State & Event System)
 // =====================================================================
 
-/// FTP 执行状态机阶段（明确的离散状态）
+/// FTP 执行状态机明确的离散阶段
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub enum FtpStage {
     Connect,
@@ -18,20 +21,20 @@ pub enum FtpStage {
     Quit,
 }
 
-/// 生产级多端事件载荷 (UI 实时状态流 + Journal 日志持久化双兼容)
+/// 生产级多端通用事件载荷 (UI 实时状态流 + Journal 日志持久化双向兼容)
 #[derive(Debug, Clone, Serialize)]
 pub struct KernelEvent {
     pub task_id: String,
     pub stage: FtpStage,
     /// 状态标识: "stage_start", "stage_ok", "stage_retry", "stage_failed", "timeout_failed"
-    pub status: &'static str, 
+    pub status: &'static str,
     pub message: String,
-    /// 修复点：采用标准 Unix 绝对时间戳（秒），规避 Instant 相对时间无法跨进程重放与时钟回拨 Panic 隐患
+    /// 采用标准 Unix 绝对时间戳（秒），规避相对时间跨端恢复失效与时钟回拨 Panic 隐患
     pub unix_timestamp: u64,
 }
 
 // =====================================================================
-// 2. 阶段配置策略 (Policy Configuration)
+// 2. 阶段看门狗配置策略 (Policy Configuration)
 // =====================================================================
 
 #[derive(Debug, Clone)]
@@ -40,14 +43,14 @@ pub struct StageConfig {
     pub retry: u32,
 }
 
-/// 针对 Android 5.1.1 遗留硬件与局域网网络抖动优化的默认策略表
+/// 专为老旧 Android 遗留硬件（如诺基亚 N1）与局域网网络抖动优化的默认策略表
 pub fn default_stage_config() -> HashMap<FtpStage, StageConfig> {
     use FtpStage::*;
     HashMap::from([
         (Connect, StageConfig { timeout: Duration::from_secs(10), retry: 2 }), // 连接容忍 10s，重试 2 次
-        (Login,   StageConfig { timeout: Duration::from_secs(10), retry: 2 }), // 登录容忍 10s（老安卓核心卡点），重试 2 次
+        (Login,   StageConfig { timeout: Duration::from_secs(10), retry: 2 }), // 登录容忍 10s（老安卓核心延迟点），重试 2 次
         (List,    StageConfig { timeout: Duration::from_secs(5),  retry: 1 }), // PASV 纵向列取容忍 5s
-        (Cwd,     StageConfig { timeout: Duration::from_secs(5),  retry: 1 }), 
+        (Cwd,     StageConfig { timeout: Duration::from_secs(5),  retry: 1 }),
         (Quit,    StageConfig { timeout: Duration::from_secs(3),  retry: 0 }), // 正常退出不进行重试
     ])
 }
@@ -58,12 +61,12 @@ pub fn default_stage_config() -> HashMap<FtpStage, StageConfig> {
 
 pub struct FtpActor {
     task_id: String,
-    /// 事件发射通道，直连 Kernel Router 管道分发至前端 (Capacitor)
+    /// 事件发射通道，直连 Kernel Router 管道分发至前端 (Capacitor WebView)
     event_tx: mpsc::Sender<KernelEvent>,
     /// 阶段策略配置
     config: HashMap<FtpStage, StageConfig>,
-    // 💡 提示：此处后续可无缝挂载你的独占套接字或会话资产，如：
-    // stream: Option<tokio::net::TcpStream>,
+    // 💡 架构师提示：此处后续可无缝挂载你的独占套接字或会话资产，例如：
+    // pub socket: Option<tokio::net::TcpStream>,
 }
 
 impl FtpActor {
@@ -76,7 +79,7 @@ impl FtpActor {
         }
     }
 
-    /// 统一的高可观测性事件发射器
+    /// 统一的高可观测性软心跳事件发射器
     async fn emit(&self, stage: FtpStage, status: &'static str, msg: &str) {
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -91,12 +94,12 @@ impl FtpActor {
             unix_timestamp: current_time,
         };
 
-        // 采用不阻塞主执行流的发射方式，若路由通道关闭则静默忽略
+        // 采用非阻塞发射，若外部路由分发通道关闭则静默忽略，防止反向污染内核
         let _ = self.event_tx.send(event).await;
     }
 
-    /// 核心升级：基于命令派发（Match Dispatcher）的原子阶段执行器
-    /// 彻底剪除了异步闭包（Fn() -> Fut），确保 &mut self 在 loop 重试中拥有绝对安全的借用生命周期
+    /// 核心重构：基于命令派发的原子阶段执行器
+    /// 彻底剪除了异步闭包，配合 `BoxFuture<'_, ...>` 保证 `&mut self` 在 loop 中拥有绝对安全的生命周期
     async fn execute_stage(&mut self, stage: FtpStage) -> Result<(), String> {
         let cfg = self.config.get(&stage).ok_or_else(|| "Stage config missing".to_string())?;
         let mut attempts = 0;
@@ -106,23 +109,26 @@ impl FtpActor {
         loop {
             attempts += 1;
 
-            // 依据单体 Owner 状态机状态，动态生成真正的底层异步网络 I/O Future
-            let io_future = match stage {
-                FtpStage::Connect => self.impl_connect(),
-                FtpStage::Login   => self.impl_login(),
-                FtpStage::List    => self.impl_list(),
-                FtpStage::Cwd     => self.impl_cwd(),
-                FtpStage::Quit    => self.impl_quit(),
+            // =====================================================================
+            // 🔥 关键修正：利用 BoxFuture<'_, Result<...>> 替代 BoxFuture<'static, ...>
+            // '_ 显式告知借用检查器：被抹平的具体 Future 允许持有对 `self` 内部物理资产的独占可变借用
+            // =====================================================================
+            let io_future: BoxFuture<'_, Result<(), String>> = match stage {
+                FtpStage::Connect => self.impl_connect().boxed(),
+                FtpStage::Login   => self.impl_login().boxed(),
+                FtpStage::List    => self.impl_list().boxed(),
+                FtpStage::Cwd     => self.impl_cwd().boxed(),
+                FtpStage::Quit    => self.impl_quit().boxed(),
             };
 
-            // 精准实施单阶段超时控制
+            // 精准实施局部单阶段超时控制，杜绝全局 Watchdog 误杀
             match timeout(cfg.timeout, io_future).await {
-                // 情况一：I/O 在规定时间内完成且执行成功
+                // 情况一：I/O 在预算内完成且协议执行成功
                 Ok(Ok(_)) => {
                     self.emit(stage, "stage_ok", "Phase completed successfully.").await;
                     return Ok(());
                 }
-                // 情况二：I/O 在时间内返回，但底层协议或网络报错（如密码错、握手断开）
+                // 情况二：I/O 未超时，但底层网络或协议报错（如密码错、握手断开、404 HTML 意外报文）
                 Ok(Err(err_msg)) => {
                     if attempts > cfg.retry {
                         self.emit(stage, "stage_failed", &format!("Aborted. Exceeded max retries. Error: {}", err_msg)).await;
@@ -130,18 +136,18 @@ impl FtpActor {
                     }
                     self.emit(stage, "stage_retry", &format!("Attempt {} failed: {}. Retrying...", attempts, err_msg)).await;
                 }
-                // 情况三：I/O 彻底超时（Watchdog 局部介入，未破坏系统长周期）
+                // 情况三：I/O 彻底超时（局部看门狗平滑拦截）
                 Err(_) => {
                     if attempts > cfg.retry {
-                        self.emit(stage, "timeout_failed", "Aborted. Execution step timed out under policy restriction.").await;
+                        self.emit(stage, "timeout_failed", "Aborted. Critical timeout restriction triggered.").await;
                         return Err(format!("Phase {:?} timed out permanently.", stage));
                     }
                     self.emit(stage, "stage_retry", &format!("Attempt {} timed out. Re-triggering...", attempts)).await;
                 }
             }
 
-            // 💡 关键修复：专为老旧 Android 5.1.1 注入的 200ms 抖动退避机制 (Jitter Buffer)
-            // 避免弱网或物理网卡Looper积压时，高频盲目重试导致连续失败
+            // 💡 针对老旧 Android 5.1.1 强力注入的 200ms 抖动退避机制 (Jitter Buffer)
+            // 当 Future 被丢弃释放后挂起 200ms，给予网卡驱动、Looper 队列以及路由器状态机充分的恢复缓冲时间
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     }
@@ -151,31 +157,31 @@ impl FtpActor {
     // =====================================================================
 
     async fn impl_connect(&mut self) -> Result<(), String> {
-        // 此处对接真正的 TcpStream::connect
-        tokio::time::sleep(Duration::from_millis(774)).await; // 真实对齐你日志中的 774ms 消耗
+        // 在此处对接真正的套接字建立逻辑: TcpStream::connect
+        tokio::time::sleep(Duration::from_millis(774)).await; // 完美对齐真机日志损耗
         Ok(())
     }
 
     async fn impl_login(&mut self) -> Result<(), String> {
-        // 此处对接真实的 USER/PASS 状态机交互
-        tokio::time::sleep(Duration::from_millis(1876)).await; // 真实对齐你日志中的 1.87s 消耗
+        // 在此处对接真正的 USER -> PASS 状态机报文流交互
+        tokio::time::sleep(Duration::from_millis(1876)).await; // 完美对齐真机日志损耗
         Ok(())
     }
 
     async fn impl_list(&mut self) -> Result<(), String> {
-        // 此处对接 PASV/EPSV 模式切换与数据通道读取
+        // 在此处对接 PASV 模式切换与数据通道读取
         tokio::time::sleep(Duration::from_millis(226)).await;
         Ok(())
     }
 
     async fn impl_cwd(&mut self) -> Result<(), String> {
-        // 切换工作目录
+        // 切换远程主权节点工作目录
         tokio::time::sleep(Duration::from_millis(74)).await;
         Ok(())
     }
 
     async fn impl_quit(&mut self) -> Result<(), String> {
-        // 发送 QUIT 报文干净利落地关闭
+        // 发送 QUIT 报文干净利落地注销会话
         tokio::time::sleep(Duration::from_millis(441)).await;
         Ok(())
     }
@@ -186,13 +192,13 @@ impl FtpActor {
 
     /// 启动 Actor 执行引擎主流程
     pub async fn execute_system_flow(&mut self) -> Result<(), String> {
-        // 确定性的顺序流转拓扑，任何阶段发生不可恢复的致命失败，通过 ? 快速熔断并回传
+        // 确定性的顺序流转拓扑，任何阶段发生不可恢复的致命失败，通过 ? 快速熔断并回传给主内核
         self.execute_stage(FtpStage::Connect).await?;
         self.execute_stage(FtpStage::Login).await?;
         self.execute_stage(FtpStage::List).await?;
         self.execute_stage(FtpStage::Cwd).await?;
         self.execute_stage(FtpStage::Quit).await?;
-        
+
         Ok(())
     }
 }
