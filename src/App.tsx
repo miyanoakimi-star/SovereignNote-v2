@@ -4,7 +4,6 @@ import Sidebar from './components/Sidebar';
 import PartitionBar from './components/PartitionBar';
 import MainArea from './components/MainArea';
 import { getLocalNotes, saveLocalNotes, syncWithBackend, getApiBaseUrl, addSyncLog } from './lib/api';
-import { universalExport } from './utils/export';
 import { safeStorage } from './utils/safeStorage';
 
 function generateUUID(): string {
@@ -163,12 +162,38 @@ export default function App() {
   }, [uiScale]);
 
   useEffect(() => {
-    const cached = getLocalNotes();
+    const handleStateUpdated = () => {
+      const savedEvents = safeStorage.getItem('sovereign_events');
+      if (savedEvents) setCustomEvents(JSON.parse(savedEvents));
+
+      const savedInd = safeStorage.getItem('sovereign_independent_tags');
+      if (savedInd) setIndependentTags(JSON.parse(savedInd));
+
+      const savedMap = safeStorage.getItem('sovereign_note_tags_map');
+      if (savedMap) setNoteTagsMap(JSON.parse(savedMap));
+    };
+    window.addEventListener('sovereign_app_state_updated', handleStateUpdated);
+    return () => window.removeEventListener('sovereign_app_state_updated', handleStateUpdated);
+  }, []);
+
+  useEffect(() => {
+    let cached = getLocalNotes();
+    cached = cached.filter(n => n.id !== '__SOVEREIGN_APP_STATE__');
     setNotes(cached);
     if (cached.length > 0) {
       const active = cached.find(n => !n.deleted);
       if (active) setActiveNoteId(active.id);
     }
+
+    // Trigger auto backup (at most 1 per day based on backend Rust logic)
+    const runAutoBackup = async () => {
+      try {
+        await fetch(`${getApiBaseUrl()}/backup/auto/run`, { method: 'POST' });
+      } catch (e) {
+        console.warn('Auto backup trigger failed:', e);
+      }
+    };
+    runAutoBackup();
   }, []);
 
   // Sync settings when modified
@@ -224,7 +249,18 @@ export default function App() {
   };
 
   useEffect(() => {
+    safeStorage.setItem('sovereign_independent_tags', JSON.stringify(independentTags));
+    safeStorage.setItem('sovereign_app_state_updated_at', Date.now().toString());
+  }, [independentTags]);
+
+  useEffect(() => {
+    safeStorage.setItem('sovereign_note_tags_map', JSON.stringify(noteTagsMap));
+    safeStorage.setItem('sovereign_app_state_updated_at', Date.now().toString());
+  }, [noteTagsMap]);
+
+  useEffect(() => {
     safeStorage.setItem('sovereign_events', JSON.stringify(customEvents));
+    safeStorage.setItem('sovereign_app_state_updated_at', Date.now().toString());
   }, [customEvents]);
 
   useEffect(() => {
@@ -239,25 +275,18 @@ export default function App() {
     safeStorage.setItem('sovereign_custom_festivals', JSON.stringify(customFestivals));
   }, [customFestivals]);
 
-  useEffect(() => {
-    safeStorage.setItem('sovereign_independent_tags', JSON.stringify(independentTags));
-  }, [independentTags]);
-
-  useEffect(() => {
-    safeStorage.setItem('sovereign_note_tags_map', JSON.stringify(noteTagsMap));
-  }, [noteTagsMap]);
-
   // 自动且具有防抖功能地将前台笔记同步至 Rust 本地 SQLite 数据库 (实现 LWW 融合)
   useEffect(() => {
     const timer = setTimeout(async () => {
       try {
         const res = await syncWithBackend();
         if (res.success) {
+          const purelyNotes = res.notes.filter(n => n.id !== '__SOVEREIGN_APP_STATE__');
           const currentStr = JSON.stringify(notes);
-          const syncedStr = JSON.stringify(res.notes);
+          const syncedStr = JSON.stringify(purelyNotes);
           if (currentStr !== syncedStr) {
-            addSyncLog('INFO', `[局域网 LWW 自动同步] 侦测到本地缓存与 SQLite 存在版本差，完成对等差异数据融合 (LWW 策略，合并至 ${res.notes.length} 篇)。`);
-            setNotes(res.notes);
+            addSyncLog('INFO', `[局域网 LWW 自动同步] 侦测到本地缓存与 SQLite 存在版本差，完成对等差异数据融合 (LWW 策略，合并至 ${purelyNotes.length} 篇)。`);
+            setNotes(purelyNotes);
           }
         } else {
           addSyncLog('ERROR', `[局域网 LWW 自动同步] 自动同步最终一致性融合网络异常: ${res.error || '连接服务器失败'}`);
@@ -268,7 +297,7 @@ export default function App() {
       }
     }, 1500); // 防抖 1.5 秒，在用户停止输入后触发
     return () => clearTimeout(timer);
-  }, [notes]);
+  }, [notes, independentTags, noteTagsMap, customEvents]);
 
   // 高兼容、低功耗、跨局域网多设备 SSE 实时数据共识监听订阅
   useEffect(() => {
@@ -296,8 +325,9 @@ export default function App() {
           
           const res = await syncWithBackend();
           if (res.success) {
+            const purelyNotes = res.notes.filter(n => n.id !== '__SOVEREIGN_APP_STATE__');
             addSyncLog('SUCCESS', `[局域网 LWW SSE 通讯] 差异重构完毕。前台已合流至全局最新版本记录。`);
-            setNotes(res.notes);
+            setNotes(purelyNotes);
           } else {
             addSyncLog('ERROR', `[局域网 LWW SSE 通讯] 同步异常断链：${res.error || '未知网络问题'}`);
           }
@@ -381,21 +411,22 @@ export default function App() {
     }
   }
 
-  // Export full LWW state database as JSON
-  function handleExportDatabase() {
-    const data = {
-      notes,
-      customEvents,
-      webdavConfig,
-      fontSizeLevel,
-      customFestivals,
-      independentTags,
-      noteTagsMap,
-      version: "1.0.0"
-    };
-    const jsonStr = JSON.stringify(data, null, 2);
-    const filename = `sovereign_notes_db_backup_${new Date().toISOString().slice(0, 10)}.json`;
-    universalExport(jsonStr, filename, 'application/json');
+  // Export full backup using Rust Time Machine Backend
+  async function handleExportDatabase() {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/backup/manual`, {
+        method: 'POST'
+      });
+      if (!response.ok) {
+        throw new Error('Failed to create manual backup');
+      }
+      const data = await response.json();
+      if (data.file) {
+        window.location.href = `${getApiBaseUrl()}/backup/download/${data.file}`;
+      }
+    } catch (e) {
+      alert("备份导出失败: " + String(e));
+    }
   }
 
   // Import full database from JSON content

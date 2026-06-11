@@ -13,6 +13,7 @@ mod api;
 mod ftp;
 pub mod lww;
 pub mod kernel;
+pub mod backup;
 
 #[derive(RustEmbed)]
 #[folder = "../dist"] // 指向前端 Vite 构建产物

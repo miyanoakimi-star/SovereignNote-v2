@@ -46,6 +46,7 @@ pub fn router(state: AppState) -> Router {
         // Three-Layer Sync Probe System
         .route("/probe", post(add_probe_event_api))
         .route("/probe/list", get(get_probe_events_api))
+        .nest("/backup", crate::backup::backup_routes())
         .with_state(state)
 }
 

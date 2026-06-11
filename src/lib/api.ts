@@ -77,7 +77,30 @@ export function mergeNotesLWW(clientNotes: Note[], serverNotes: Note[]): Note[] 
 export function getLocalNotes(): Note[] {
   try {
     const data = safeStorage.getItem('sovereign_notes');
-    return data ? JSON.parse(data) : [];
+    let notes: Note[] = data ? JSON.parse(data) : [];
+
+    // Inject __APP_STATE__ note
+    const independentTags = safeStorage.getItem('sovereign_independent_tags');
+    const noteTagsMap = safeStorage.getItem('sovereign_note_tags_map');
+    const customEvents = safeStorage.getItem('sovereign_events');
+    const updateTime = safeStorage.getItem('sovereign_app_state_updated_at') || '0';
+    
+    if (independentTags || noteTagsMap || customEvents) {
+      notes.push({
+        id: '__SOVEREIGN_APP_STATE__',
+        title: '__SOVEREIGN_APP_STATE__',
+        content: JSON.stringify({
+          independentTags: independentTags ? JSON.parse(independentTags) : undefined,
+          noteTagsMap: noteTagsMap ? JSON.parse(noteTagsMap) : undefined,
+          customEvents: customEvents ? JSON.parse(customEvents) : undefined,
+        }),
+        created_at: 0,
+        updated_at: parseInt(updateTime, 10),
+        deleted: false
+      });
+    }
+
+    return notes;
   } catch (e) {
     console.error('Failed to parse local notes:', e);
     return [];
@@ -89,7 +112,29 @@ export function getLocalNotes(): Note[] {
  */
 export function saveLocalNotes(notes: Note[]): void {
   try {
-    safeStorage.setItem('sovereign_notes', JSON.stringify(notes));
+    // Check for __APP_STATE__ and extract it
+    const stateNote = notes.find(n => n.id === '__SOVEREIGN_APP_STATE__');
+    if (stateNote) {
+      try {
+        const state = JSON.parse(stateNote.content);
+        const lastUpdate = safeStorage.getItem('sovereign_app_state_updated_at') || '0';
+        if (stateNote.updated_at > parseInt(lastUpdate, 10)) {
+          if (state.independentTags) safeStorage.setItem('sovereign_independent_tags', JSON.stringify(state.independentTags));
+          if (state.noteTagsMap) safeStorage.setItem('sovereign_note_tags_map', JSON.stringify(state.noteTagsMap));
+          if (state.customEvents) safeStorage.setItem('sovereign_events', JSON.stringify(state.customEvents));
+          safeStorage.setItem('sovereign_app_state_updated_at', stateNote.updated_at.toString());
+          
+          // Note: using an event or reload to update UI state since components use local state.
+          // Because `saveLocalNotes` only writes to localStorage. You can refresh safely.
+          window.dispatchEvent(new Event('sovereign_app_state_updated'));
+        }
+      } catch (err) {
+        console.error("Failed to parse app state note", err);
+      }
+    }
+
+    const purelyNotes = notes.filter(n => n.id !== '__SOVEREIGN_APP_STATE__');
+    safeStorage.setItem('sovereign_notes', JSON.stringify(purelyNotes));
   } catch (e) {
     console.error('Failed to save local notes:', e);
   }

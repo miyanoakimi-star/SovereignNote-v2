@@ -262,9 +262,9 @@ export default function MainArea({
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
   // Release Manager local states
-  const [releaseVersion, setReleaseVersion] = useState('v2.0.1');
-  const [releaseTitle, setReleaseTitle] = useState('SovereignNote v2.0.1 标签构架重构与缓存管理优化');
-  const [releaseChangelog, setReleaseChangelog] = useState('## 🎉 SovereignNote v2.0.1 核心更新\n\n- **🏷️ 全局标签关联重构**: 重构基于内容的标签自动归纳算法与多层树级统计模型，修复了部分情况下标签目录输出不全的问题。\n- **🗑️ 硬件级缓存安全销毁**: 系统设置面板新增浏览器本地沙盒数据库清空选项，以便随时安全地重置终端并抛弃离线缓存。\n- **🐛 细节体验改善**: 其他一系列底层稳定性修复。');
+  const [releaseVersion, setReleaseVersion] = useState('v3.0.0');
+  const [releaseTitle, setReleaseTitle] = useState('SovereignNote v3.0.0 终极同步架构升级与状态持久化');
+  const [releaseChangelog, setReleaseChangelog] = useState('## 🎉 SovereignNote v3.0.0 核心更新\n\n- **🧠 全维度标签与状态同步**: 彻底解决了曾经标签配置只保留在本地的问题。我们现已将全局系统组态包入 LWW 底层引擎，完成极致同步。\n- **📦 全景时间机器压缩备份**: 将本地存储的状态一揽子带入 ZIP 归档！');
   const [releaseLog, setReleaseLog] = useState<string[]>([]);
   const [isPackaging, setIsPackaging] = useState(false);
 
@@ -2449,13 +2449,29 @@ jobs:
                         <Upload className="w-4 h-4 inline" /> 导入整库快照
                         <input 
                           type="file" 
-                          accept=".json" 
+                          accept=".json,.zip" 
                           className="hidden" 
                           onChange={async (e) => {
                             const file = e.target.files?.[0];
                             if (file) {
-                              const text = await file.text();
-                              handleImportDatabase(text);
+                              if (file.name.endsWith('.zip')) {
+                                try {
+                                  const formData = new FormData();
+                                  formData.append('file', file);
+                                  const response = await fetch(`${getApiBaseUrl()}/backup/import`, {
+                                    method: 'POST',
+                                    body: formData
+                                  });
+                                  if (!response.ok) throw new Error('Failed to import backup');
+                                  alert("ZIP 备份导入成功！页面即将重载...");
+                                  window.location.reload();
+                                } catch (e) {
+                                  alert("ZIP 备份导入失败: " + String(e));
+                                }
+                              } else {
+                                const text = await file.text();
+                                handleImportDatabase(text);
+                              }
                             }
                           }} 
                         />
