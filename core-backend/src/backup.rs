@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BackupConfig {
@@ -49,7 +48,7 @@ pub struct BackupItem {
     pub r#type: String,
 }
 
-pub fn backup_routes() -> Router<Arc<crate::api::AppState>> {
+pub fn backup_routes() -> Router<crate::api::AppState> {
     Router::new()
         .route("/list", get(list_backups))
         .route("/manual", post(create_manual_backup))
@@ -93,13 +92,15 @@ async fn list_backups() -> Result<Json<Vec<BackupItem>>, (StatusCode, String)> {
 
 fn extract_notes(pool: &DbPool) -> Result<Vec<Note>, Box<dyn std::error::Error + Send + Sync>> {
     let conn = pool.get()?;
-    let mut stmt = conn.prepare("SELECT id, content, updated_at, device_id FROM notes")?;
+    let mut stmt = conn.prepare("SELECT id, title, content, created_at, updated_at, deleted FROM notes")?;
     let notes_iter = stmt.query_map([], |row| {
         Ok(Note {
             id: row.get(0)?,
-            content: row.get(1)?,
-            updated_at: row.get(2)?,
-            device_id: row.get(3)?,
+            title: row.get(1)?,
+            content: row.get(2)?,
+            created_at: row.get(3)?,
+            updated_at: row.get(4)?,
+            deleted: row.get::<_, i32>(5)? != 0,
         })
     })?;
 
@@ -189,7 +190,7 @@ fn cleanup_auto_backups(dir: &PathBuf) -> Result<(), Box<dyn std::error::Error +
     Ok(())
 }
 
-async fn create_manual_backup(State(state): State<Arc<crate::api::AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn create_manual_backup(State(state): State<crate::api::AppState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let pool = state.pool.clone();
     let filename = tokio::task::spawn_blocking(move || {
         create_backup_zip(pool, "manual")
@@ -200,7 +201,7 @@ async fn create_manual_backup(State(state): State<Arc<crate::api::AppState>>) ->
     Ok(Json(serde_json::json!({ "file": filename, "status": "ok" })))
 }
 
-async fn create_auto_backup(State(state): State<Arc<crate::api::AppState>>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn create_auto_backup(State(state): State<crate::api::AppState>) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     // Check if we already created an auto backup today
     let dir = get_backups_dir();
     let now = Local::now();
@@ -252,7 +253,7 @@ async fn download_backup(Path(id): Path<String>) -> impl IntoResponse {
     (headers, file_content).into_response()
 }
 
-async fn import_backup(State(state): State<Arc<crate::api::AppState>>, mut multipart: Multipart) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+async fn import_backup(State(state): State<crate::api::AppState>, mut multipart: Multipart) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let mut zip_data = Vec::new();
 
     while let Some(field) = multipart.next_field().await.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))? {

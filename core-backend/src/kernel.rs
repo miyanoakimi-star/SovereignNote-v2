@@ -191,7 +191,7 @@ impl Kernel {
     }
 
     pub async fn emit_event(&self, event: KernelEvent, req: &KernelRequest) {
-        let record = KernelEventRecord {
+        let _record = KernelEventRecord {
             ts: chrono::Local::now().timestamp_millis(),
             req_id: req.id.clone(),
             event: event.clone(),
