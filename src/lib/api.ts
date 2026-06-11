@@ -95,6 +95,18 @@ export function saveLocalNotes(notes: Note[]): void {
   }
 }
 
+export async function safeParseResponse(response: Response): Promise<any> {
+  const text = await response.text();
+  if (text.trim().startsWith('<')) {
+    throw new Error('HTML response detected (proxy error / nginx fallback)');
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e: any) {
+    throw new Error(`JSON parse failed: ${e.message}`);
+  }
+}
+
 /**
  * 同步网络层：将本地更改同步至 Rust 后台
  */
@@ -114,7 +126,7 @@ export async function syncWithBackend(): Promise<{ success: boolean; notes: Note
       throw new Error(`Sync request failed with status: ${response.status}`);
     }
 
-    const serverNotes: Note[] = await response.json();
+    const serverNotes: Note[] = await safeParseResponse(response);
 
     // 在客户端合并两端最新、最全的代码数据
     const merged = mergeNotesLWW(localNotes, serverNotes);
