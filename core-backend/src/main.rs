@@ -105,10 +105,6 @@ fn setup_panic_hook() {
     }));
 }
 
-async fn health_check() -> &'static str {
-    "Backend API is alive!"
-}
-
 #[tokio::main]
 async fn main() {
     setup_panic_hook();
@@ -173,8 +169,7 @@ async fn main() {
     };
 
     // 注册挂载的 API 路由集，嵌套在 /api
-    let api_routes = api::router(app_state)
-        .route("/health", get(health_check));
+    let api_routes = api::router(app_state);
 
     // 配置 CORS 允许跨域（移动端和局域网多端同步必备）
     let cors = CorsLayer::new()
