@@ -1,8 +1,8 @@
 use suppaftp::AsyncFtpStream;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use crate::db::{DbPool, add_sync_log_detailed};
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FtpConfig {
     pub host: String,
     pub user: String,

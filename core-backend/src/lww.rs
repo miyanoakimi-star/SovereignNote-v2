@@ -35,7 +35,7 @@ pub async fn handle_kernel_request(req: KernelRequest, log: &LogBus) -> Result<(
     
     match crate::db::sync_notes(&log.pool, mock_incoming) {
         Ok(_) => {
-            if let Ok(mut conn) = log.pool.get() {
+            if let Ok(conn) = log.pool.get() {
                 let _ = conn.execute("DELETE FROM notes WHERE id = ?1", params![test_uuid]);
             }
             log.ok(&req.id, "lww", "lww_merge", "【连接测试】LWW 冲突协商机制验证成功！决策模块支持最后写入赢策略、双向反向纠偏及旧版本丢弃。");

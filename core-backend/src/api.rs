@@ -2,7 +2,7 @@ use axum::{
     extract::State,
     http::StatusCode,
     Json,
-    routing::{get, post, delete},
+    routing::{get, post},
     Router,
     response::sse::{Event, KeepAlive, Sse},
 };
@@ -452,7 +452,13 @@ async fn test_ftp_connection(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     let session_id = payload.session_id.clone();
     
-    let mut payload_json = serde_json::to_value(&payload.config).unwrap_or(serde_json::Value::Null);
+    let payload_json = serde_json::json!({
+        "host": payload.config.host,
+        "user": payload.config.user,
+        "path": payload.config.path,
+        "secure": payload.config.secure,
+        "pass": "***"
+    });
     
     let req = crate::kernel::KernelRequest {
         id: session_id.clone(),
