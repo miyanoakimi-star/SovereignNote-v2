@@ -51,16 +51,110 @@ async fn fallback_handler(uri: Uri) -> impl IntoResponse {
     }
 }
 
+use std::path::PathBuf;
+use std::fs::OpenOptions;
+use std::io::Write;
+
+fn get_exe_dir() -> PathBuf {
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            return parent.to_path_buf();
+        }
+    }
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn log_to_file(level: &str, msg: &str) {
+    let mut path = get_exe_dir();
+    path.push("sovereign_backend.log");
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let log_line = format!("[{}] [{}] {}\n", timestamp, level, msg);
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = file.write_all(log_line.as_bytes());
+    }
+}
+
+fn print_and_log(level: &str, msg: &str) {
+    println!("[{}] {}", level, msg);
+    log_to_file(level, msg);
+}
+
+fn setup_panic_hook() {
+    std::panic::set_hook(Box::new(|panic_info| {
+        let msg = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            *s
+        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            s.as_str()
+        } else {
+            "Unknown panic"
+        };
+        
+        let location = if let Some(loc) = panic_info.location() {
+            format!("at {}:{}", loc.file(), loc.line())
+        } else {
+            "unknown location".to_string()
+        };
+        
+        let error_msg = format!("PANIC occurred: {} ({})", msg, location);
+        eprintln!("{}", error_msg);
+        log_to_file("FATAL", &error_msg);
+    }));
+}
+
 async fn health_check() -> &'static str {
     "Backend API is alive!"
 }
 
 #[tokio::main]
 async fn main() {
-    println!("Initializing Sovereign Backend DB...");
+    setup_panic_hook();
+    print_and_log("INFO", "=== Sovereign Backend Engine Starting Up ===");
+    print_and_log("INFO", "Initializing Sovereign Backend DB...");
     
-    // 初始化本地 SQLite (数据库文件名：sovereign_note.db)
-    let pool = db::init_db("sovereign_note.db");
+    let mut db_path = get_exe_dir();
+    db_path.push("sovereign_note.db");
+    print_and_log("INFO", &format!("Database path resolved: {:?}", db_path));
+    
+    // 初始化本地 SQLite (数据库文件名：sovereign_note.db)，并具备对损坏/表锁定的自恢复自我修复能力
+    let pool = match db::init_db(&db_path) {
+        Ok(p) => {
+            print_and_log("INFO", "Database loaded successfully on primary connection path.");
+            p
+        }
+        Err(e) => {
+            print_and_log("ERROR", &format!("Primary database load failed: {}. Initiating self-healing engine...", e));
+            // Back up the corrupted/locked database file
+            let timestamp = chrono::Local::now().format("%Y%m%d%H%M%S").to_string();
+            let mut backup_path = get_exe_dir();
+            backup_path.push(format!("sovereign_note.db.corrupted-{}", timestamp));
+            
+            if db_path.exists() {
+                print_and_log("WARN", &format!("Archiving current database file to: {:?}", backup_path));
+                if let Err(rename_err) = std::fs::rename(&db_path, &backup_path) {
+                    print_and_log("ERROR", &format!("Failed to rename/archive existing database: {}. Performing raw deletions...", rename_err));
+                    let _ = std::fs::remove_file(&db_path);
+                }
+            }
+            
+            // Re-init with clean file
+            print_and_log("INFO", "Re-attempting fresh database initialization schema...");
+            match db::init_db(&db_path) {
+                Ok(new_pool) => {
+                    print_and_log("INFO", "Self-healing completed! Fresh sovereign_note.db successfully initialized.");
+                    new_pool
+                }
+                Err(e2) => {
+                    let fatal_error_msg = format!("CRITICAL ERROR: Failed to form SQLite connection even from fresh database! Details: {}", e2);
+                    print_and_log("FATAL", &fatal_error_msg);
+                    panic!("{}", fatal_error_msg);
+                }
+            }
+        }
+    };
 
     let (tx, _) = tokio::sync::broadcast::channel::<String>(100);
     
@@ -96,7 +190,8 @@ async fn main() {
         .layer(cors);
 
     // 绑定端口 3000 (支持容器环境与本地调试)
+    print_and_log("INFO", "Attempting to bind TcpListener on 0.0.0.0:3000...");
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    println!("Server successfully running on http://0.0.0.0:3000");
+    print_and_log("INFO", "Server successfully running on http://0.0.0.0:3000");
     axum::serve(listener, app).await.unwrap();
 }

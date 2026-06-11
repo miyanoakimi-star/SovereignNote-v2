@@ -1,5 +1,6 @@
 import { Note } from '../types';
 import { safeStorage } from '../utils/safeStorage';
+import { Capacitor } from '@capacitor/core';
 
 /**
  * 动态获取后台 API 基址。
@@ -10,6 +11,10 @@ export function getApiBaseUrl(): string {
   const customUrl = safeStorage.getItem('sovereign_sync_url');
   if (customUrl) {
     return customUrl.endsWith('/') ? customUrl.slice(0, -1) + '/api' : customUrl + '/api';
+  }
+  if (Capacitor.isNativePlatform()) {
+    // Android默认Kernel地址
+    return 'http://127.0.0.1:8787/api';
   }
   return '/api';
 }

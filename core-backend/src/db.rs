@@ -39,15 +39,21 @@ pub struct SyncLog {
 
 pub type DbPool = Pool<SqliteConnectionManager>;
 
-pub fn init_db<P: AsRef<Path>>(db_path: P) -> DbPool {
-    let manager = SqliteConnectionManager::file(db_path);
+pub fn init_db<P: AsRef<Path>>(db_path: P) -> Result<DbPool, String> {
+    let path_ref = db_path.as_ref();
+    println!("[DB] Starting database engine initialization for format path: {:?}", path_ref);
+    
+    let manager = SqliteConnectionManager::file(path_ref);
     let pool = Pool::builder()
         .max_size(10)
         .build(manager)
-        .expect("Failed to create SQLite connection pool");
+        .map_err(|e| format!("Failed to build SQLite pool: {}", e))?;
 
-    let conn = pool.get().expect("Failed to get DB connection");
+    println!("[DB] SQLite pool created successfully. Acquiring setup connection...");
+    let conn = pool.get()
+        .map_err(|e| format!("Failed to acquire connection from pool: {}", e))?;
     
+    println!("[DB] Connection acquired. Ensuring 'notes' table schema exists...");
     // 初始化具有 LWW tombstone 删除状态标志的 notes 数据库表
     conn.execute(
         "CREATE TABLE IF NOT EXISTS notes (
@@ -60,10 +66,13 @@ pub fn init_db<P: AsRef<Path>>(db_path: P) -> DbPool {
         )",
         [],
     )
-    .expect("Failed to initialize database tables");
+    .map_err(|e| format!("Failed to create notes table: {}", e))?;
 
     // Drop then recreate table to ensure new columns (session_id, protocol, step) exist
+    println!("[DB] Re-initializing 'sync_logs' schema... Attempting drop existing if present...");
     let _ = conn.execute("DROP TABLE IF EXISTS sync_logs", []);
+    
+    println!("[DB] Creating 'sync_logs' table...");
     conn.execute(
         "CREATE TABLE IF NOT EXISTS sync_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,8 +85,9 @@ pub fn init_db<P: AsRef<Path>>(db_path: P) -> DbPool {
         )",
         [],
     )
-    .expect("Failed to initialize sync_logs table");
+    .map_err(|e| format!("Failed to create sync_logs table: {}", e))?;
 
+    println!("[DB] Creating 'sync_probe' table if not exists...");
     conn.execute(
         "CREATE TABLE IF NOT EXISTS sync_probe (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -91,9 +101,10 @@ pub fn init_db<P: AsRef<Path>>(db_path: P) -> DbPool {
         )",
         [],
     )
-    .expect("Failed to initialize sync_probe table");
+    .map_err(|e| format!("Failed to create sync_probe table: {}", e))?;
 
-    pool
+    println!("[DB] All database schemas successfully validated & ready.");
+    Ok(pool)
 }
 
 pub fn add_sync_log(pool: &DbPool, level: &str, message: &str) -> Result<(), rusqlite::Error> {
