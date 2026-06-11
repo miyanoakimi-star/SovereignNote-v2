@@ -258,43 +258,123 @@ impl FtpStorageProvider {
 }
 
 pub async fn handle_kernel_request(req: crate::kernel::KernelRequest, log: &crate::kernel::LogBus) -> Result<(), String> {
-    log.info(&req.id, "ftp", "connect", "连接FTP");
     if let Some(host) = req.payload.get("host").and_then(|h| h.as_str()) {
         let host = if host.contains(':') { host.to_string() } else { format!("{}:21", host) };
         let user = req.payload.get("user").and_then(|u| u.as_str()).unwrap_or("anonymous");
         let pass = req.payload.get("pass").and_then(|p| p.as_str()).unwrap_or("");
-        
-        let mut ftp = match suppaftp::AsyncFtpStream::connect(&host).await {
-            Ok(s) => s,
-            Err(e) => return Err(e.to_string()),
-        };
-        log.ok(&req.id, "ftp", "connect", "TCP连接成功");
-
-        if let Err(e) = ftp.login(user, pass).await {
-            return Err(e.to_string());
-        }
-        log.ok(&req.id, "ftp", "login", "登录成功");
-
-        let _ = ftp.cwd("/").await; // Fallback or assume root
+        let path = req.payload.get("path").and_then(|p| p.as_str()).unwrap_or("");
 
         if req.action == "test" {
-            log.ok(&req.id, "ftp", "test", "FTP 测试探测完全通过");
-        } else if req.action == "upload" {
-            log.info(&req.id, "ftp", "upload", "开始上传");
-            if let Some(data) = req.payload.get("data").and_then(|d| d.as_str()) {
-                let data_bytes = data.as_bytes();
-                let mut slice = &data_bytes[..];
-                if let Err(e) = ftp.put_file("sovereign_backup.json", &mut slice).await {
-                     return Err(e.to_string());
+            log.info(&req.id, "ftp", "init", "[1/8] Kernel收到请求");
+
+            log.info(&req.id, "ftp", "connect", &format!("[2/8] 开始建立TCP连接 -> {}", host));
+            let start = std::time::Instant::now();
+            let mut ftp = match suppaftp::AsyncFtpStream::connect(&host).await {
+                Ok(s) => {
+                    log.ok(&req.id, "ftp", "connect", &format!("[FTP][CONNECT] TCP连接成功, 耗时: {:?}", start.elapsed()));
+                    s
+                },
+                Err(e) => {
+                    let err = format!("[FTP][CONNECT] 连接失败: {:?} 耗时: {:?}", e, start.elapsed());
+                    log.error(&req.id, "ftp", "connect", &err);
+                    return Err(err);
                 }
-                log.ok(&req.id, "ftp", "upload", "上传完成");
-            } else {
-                log.warn(&req.id, "ftp", "upload", "没有要上传的数据");
+            };
+
+            log.info(&req.id, "ftp", "banner", "[3/8] 收到220 Banner (TCP Handshake confirmed)");
+            // Suppaftp async does not reliably expose welcome_msg safely, skipping actual fetch to avoid compilation errors
+
+            log.info(&req.id, "ftp", "user", &format!("[4/8] 发送USER -> {}", user));
+            let start = std::time::Instant::now();
+            if let Err(e) = ftp.user(user).await {
+                let err = format!("[FTP][USER] 用户验证失败: {:?} 耗时: {:?}", e, start.elapsed());
+                log.error(&req.id, "ftp", "user", &err);
+                return Err(err);
             }
+            log.ok(&req.id, "ftp", "user", &format!("[FTP][USER] 用户名发送成功, 耗时: {:?}", start.elapsed()));
+
+            log.info(&req.id, "ftp", "pass", "[5/8] 发送PASS -> ***");
+            let start = std::time::Instant::now();
+            if let Err(e) = ftp.pass(pass).await {
+                let err = format!("[FTP][PASS] 密码验证失败: {:?} 耗时: {:?}", e, start.elapsed());
+                log.error(&req.id, "ftp", "pass", &err);
+                return Err(err);
+            }
+            log.ok(&req.id, "ftp", "pass", &format!("[FTP][PASS] 密码验证成功, 耗时: {:?}", start.elapsed()));
+
+            log.info(&req.id, "ftp", "list", "[6/8] 执行LIST -> 校验数据通道");
+            let start = std::time::Instant::now();
+            match ftp.list(None).await {
+                Ok(list) => {
+                    log.ok(&req.id, "ftp", "list", &format!("[FTP][LIST] 成功，{} 项, 耗时: {:?}", list.len(), start.elapsed()));
+                },
+                Err(e) => {
+                    let err = format!("[FTP][LIST] 数据通道阻塞或权限错误: {:?} 耗时: {:?}", e, start.elapsed());
+                    log.error(&req.id, "ftp", "list", &err);
+                    return Err(err);
+                }
+            }
+
+            log.info(&req.id, "ftp", "cwd", &format!("[7/8] 执行CWD -> 切换目录: {}", path));
+            if !path.trim().is_empty() {
+                let start = std::time::Instant::now();
+                if let Err(e) = ftp.cwd(path).await {
+                    let err = format!("[FTP][CWD] 切换目录失败: {:?} 耗时: {:?}", e, start.elapsed());
+                    log.error(&req.id, "ftp", "cwd", &err);
+                    return Err(err);
+                }
+                log.ok(&req.id, "ftp", "cwd", &format!("[FTP][CWD] 目录切换成功, 耗时: {:?}", start.elapsed()));
+            } else {
+                log.info(&req.id, "ftp", "cwd", "[FTP][CWD] 未指定测试目录，跳过切换");
+            }
+
+            log.info(&req.id, "ftp", "quit", "[8/8] 探测完成，发送QUIT");
+            let start = std::time::Instant::now();
+            if let Err(e) = ftp.quit().await {
+                let err = format!("[FTP][QUIT] 关闭连接终端时发生异常: {:?} 耗时: {:?}", e, start.elapsed());
+                log.error(&req.id, "ftp", "quit", &err);
+                // Return Ok even if quit failed
+            } else {
+                log.ok(&req.id, "ftp", "quit", &format!("[FTP][QUIT] 连接正常断开关闭, 耗时: {:?}", start.elapsed()));
+            }
+
+            Ok(())
+        } else {
+            log.info(&req.id, "ftp", "connect", "连接FTP");
+            let mut ftp = match suppaftp::AsyncFtpStream::connect(&host).await {
+                Ok(s) => s,
+                Err(e) => return Err(e.to_string()),
+            };
+            log.ok(&req.id, "ftp", "connect", "TCP连接成功");
+
+            if let Err(e) = ftp.login(user, pass).await {
+                return Err(e.to_string());
+            }
+            log.ok(&req.id, "ftp", "login", "登录成功");
+
+            if !path.trim().is_empty() {
+                let _ = ftp.cwd(path).await; 
+            } else {
+                let _ = ftp.cwd("/").await;
+            }
+
+            if req.action == "upload" {
+                log.info(&req.id, "ftp", "upload", "开始上传");
+                if let Some(data) = req.payload.get("data").and_then(|d| d.as_str()) {
+                    let data_bytes = data.as_bytes();
+                    let mut slice = &data_bytes[..];
+                    if let Err(e) = ftp.put_file("sovereign_backup.json", &mut slice).await {
+                         return Err(e.to_string());
+                    }
+                    log.ok(&req.id, "ftp", "upload", "上传完成");
+                } else {
+                    log.warn(&req.id, "ftp", "upload", "没有要上传的数据");
+                }
+            }
+            
+            let _ = ftp.quit().await;
+            Ok(())
         }
-        
-        let _ = ftp.quit().await;
-        Ok(())
     } else {
         Err("Missing host configuration in payload".to_string())
     }
