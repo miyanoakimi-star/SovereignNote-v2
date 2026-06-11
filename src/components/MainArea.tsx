@@ -680,6 +680,19 @@ export default function MainArea({
         });
       }, 3000);
 
+      // Check Kernel status before attempting connection
+      let kernelReady = false;
+      for (let i = 0; i < 6; i++) {
+        try {
+          const check = await fetch(`${apiBase}/health`);
+          if (check.ok) { kernelReady = true; break; }
+        } catch(e) {}
+        await new Promise(r => setTimeout(r, 500));
+      }
+      if (!kernelReady) {
+         throw new Error("Kernel 未启动 (超时未响应)。本地后台尚未就绪，请稍后再试或尝试执行一次 LWW 唤醒。");
+      }
+
       const res = await fetch(`${apiBase}/sync/ftp/test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -692,7 +705,14 @@ export default function MainArea({
       clearInterval(probeInterval);
       clearInterval(stuckDetector);
       
-      const data = await res.json();
+      const textResponse = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(textResponse);
+      } catch (parseError) {
+        throw new Error(`Kernel 返回非 JSON 内容，可能未就绪、404或路由异常: \n${textResponse.substring(0, 100)}`);
+      }
+      
       if (data.logs && Array.isArray(data.logs)) {
         setFtpTestResultLogs(data.logs);
       }
