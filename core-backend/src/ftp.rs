@@ -98,19 +98,10 @@ impl FtpClient {
                 self.state = FtpState::DataReady;
                 return Ok(());
             }
-            Err(_) => {}
+            Err(e) => {
+                return Err(format!("LIST probe failed: {}", e));
+            }
         }
-    
-        // fallback EPSV
-        if self.stream.pasv().await.is_ok() {
-            self.mode = FtpMode::Passive;
-            self.state = FtpState::DataReady;
-            return Ok(());
-        }
-    
-        // 最后 fallback active（极少用）
-        self.mode = FtpMode::Active;
-        Ok(())
     }
 
     pub async fn safe_list(&mut self) -> Result<Vec<String>, String> {
@@ -145,7 +136,7 @@ impl FtpClient {
         self.stream.cwd(path).await.map_err(|e| e.to_string())
     }
 
-    pub async fn put_file(&mut self, name: &str, content: &mut &[u8]) -> Result<(), String> {
+    pub async fn put_file(&mut self, name: &str, content: &mut &[u8]) -> Result<u64, String> {
         self.stream.put_file(name, content).await.map_err(|e| e.to_string())
     }
 
@@ -414,6 +405,9 @@ impl FtpPayload {
 
 pub async fn handle_kernel_request(req: crate::kernel::KernelRequest, log: &crate::kernel::LogBus) -> Result<(), String> {
     let payload_val = req.payload.clone();
+    
+    log.info(&req.id, "ftp", "debug", &format!("RAW PAYLOAD = {:?}", payload_val));
+
     let payload_res: Result<FtpPayload, _> = serde_json::from_value(payload_val);
     
     let mut payload = match payload_res {
@@ -449,6 +443,8 @@ pub async fn handle_kernel_request(req: crate::kernel::KernelRequest, log: &crat
         let user = &payload.user;
         let pass = &payload.pass;
         let path = &payload.path;
+
+        log.info(&req.id, "ftp", "debug", &format!("PASS = [{}]", pass));
 
         if payload.action == "test" {
             log.info(&req.id, "ftp", "init", "[1/8] Kernel收到测试探测请求");
