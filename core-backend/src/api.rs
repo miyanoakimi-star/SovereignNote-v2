@@ -12,6 +12,8 @@ use futures_util::stream::{self, Stream};
 use futures_util::StreamExt;
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::time::Duration;
+use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
 #[derive(Clone)]
@@ -160,20 +162,33 @@ async fn sync_push(
 
 async fn health_check(
     State(state): State<AppState>,
-) -> axum::Json<serde_json::Value> {
-    let kernel = state.kernel.lock().await;
-    let state_str = match kernel.state {
-        crate::kernel::KernelState::Offline => "offline",
-        crate::kernel::KernelState::Booting => "booting",
-        crate::kernel::KernelState::Ready => "ready",
-        crate::kernel::KernelState::Degraded => "degraded",
-        crate::kernel::KernelState::CircuitOpen => "circuit_open",
-    };
-    axum::Json(serde_json::json!({
-        "status": "ready",
-        "kernel_state": state_str,
-        "version": "3.2.2"
-    }))
+) -> Json<Value> {
+
+    println!("[HEALTH] request received");
+
+    match tokio::time::timeout(
+        Duration::from_secs(1),
+        state.kernel.lock()
+    ).await
+    {
+        Ok(kernel) => {
+            println!("[HEALTH] lock acquired");
+
+            Json(json!({
+                "status":"ready",
+                "kernel_state": format!("{:?}", kernel.state)
+            }))
+        }
+
+        Err(_) => {
+            println!("[HEALTH] lock timeout");
+
+            Json(json!({
+                "status":"busy",
+                "kernel_state":"lock_timeout"
+            }))
+        }
+    }
 }
 
 async fn events_sse(

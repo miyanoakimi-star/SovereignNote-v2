@@ -100,6 +100,8 @@ export default function MainArea({
   const [lwwTestResultLogs, setLwwTestResultLogs] = useState<{ timestamp?: string; status?: string; level?: string; message: string; step?: string; layer?: string }[]>([]);
   const [backupStatus, setBackupStatus] = useState<string>('');
   const [activeSettingsTab, setActiveSettingsTab] = useState<'ui' | 'sync'>('ui');
+  const [androidHealthStatus, setAndroidHealthStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [androidHealthLogs, setAndroidHealthLogs] = useState<string[]>([]);
 
   // Real SQLite persistent sync logging state
   const [realSyncLogs, setRealSyncLogs] = useState<{ 
@@ -686,7 +688,9 @@ export default function MainArea({
         try {
           const check = await fetch(`${apiBase}/health`);
           if (check.ok) { kernelReady = true; break; }
-        } catch(e) {}
+        } catch(e) {
+          console.log(`health attempt ${i}`, e);
+        }
         await new Promise(r => setTimeout(r, 500));
       }
       if (!kernelReady) {
@@ -862,6 +866,40 @@ export default function MainArea({
       }]);
     } finally {
       fetchRealSyncLogs();
+    }
+  };
+
+  // Direct Android Local WebView to Core API Health diagnostic check
+  const testHealth = async () => {
+    setAndroidHealthStatus('testing');
+    setAndroidHealthLogs([`[${new Date().toLocaleTimeString()}] 🚀 开始直接请求本地健康端口 (http://127.0.0.1:8787/api/health)...`]);
+    try {
+      const res = await fetch(
+        'http://127.0.0.1:8787/api/health'
+      );
+
+      const txt = await res.text();
+
+      console.log(res.status);
+      console.log(txt);
+
+      setAndroidHealthLogs(prev => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] 📥 接收状态码: ${res.status}`,
+        `[${new Date().toLocaleTimeString()}] 📄 响应报文内容: ${txt}`
+      ]);
+      if (res.ok) {
+        setAndroidHealthStatus('success');
+      } else {
+        setAndroidHealthStatus('error');
+      }
+    } catch(e: any) {
+      console.error(e);
+      setAndroidHealthLogs(prev => [
+        ...prev,
+        `[${new Date().toLocaleTimeString()}] ❌ 发生通讯异常: ${e?.message || e}`
+      ]);
+      setAndroidHealthStatus('error');
     }
   };
 
@@ -1360,6 +1398,58 @@ export default function MainArea({
                         : '⚡ 一键测试并验证 LWW 协同健康状态'}
                     </button>
                   </div>
+
+                  <div className="flex flex-wrap gap-3 pt-2.5 border-t border-slate-800/40 mt-4">
+                    <button
+                      type="button"
+                      id="btn-android-health-direct-test"
+                      onClick={testHealth}
+                      disabled={androidHealthStatus === 'testing'}
+                      className={`px-4 py-2.5 rounded-lg text-xs font-bold transition-all border whitespace-nowrap ${
+                        androidHealthStatus === 'testing'
+                          ? 'bg-slate-800 text-slate-500 border-slate-750 cursor-not-allowed'
+                          : androidHealthStatus === 'success'
+                          ? 'bg-emerald-650 hover:bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-950/20'
+                          : androidHealthStatus === 'error'
+                          ? 'bg-rose-950/45 text-rose-300 border-rose-900/30 hover:bg-rose-900/20'
+                          : 'bg-indigo-600 hover:bg-indigo-500 text-white border-indigo-500 shadow-lg shadow-indigo-950/20'
+                      }`}
+                    >
+                      {androidHealthStatus === 'testing' 
+                        ? '⏳ 正在进行 HTTP 8787 直连测试...' 
+                        : androidHealthStatus === 'success' 
+                        ? '✅ Android WebView 8787 直连成功 (重新测试)' 
+                        : androidHealthStatus === 'error' 
+                        ? '❌ Android WebView 8787 连通失败 (重新测试)' 
+                        : '📱 极简一键直测: Android WebView 至 Local 8787 /api/health'}
+                    </button>
+                    {androidHealthLogs.length > 0 && (
+                      <button
+                        type="button"
+                        id="btn-android-health-clear-logs"
+                        onClick={() => {
+                          setAndroidHealthLogs([]);
+                          setAndroidHealthStatus('idle');
+                        }}
+                        className="px-3.5 py-2.5 bg-slate-900 hover:bg-slate-850 text-slate-400 border border-slate-800 rounded-lg text-xs font-medium transition-colors"
+                      >
+                        清空直测分析
+                      </button>
+                    )}
+                  </div>
+
+                  {androidHealthLogs.length > 0 && (
+                    <div id="android-health-log-viewer" className="bg-slate-950 rounded-lg p-3.5 border border-slate-900 font-mono text-[10px] space-y-1.5 text-slate-300 max-h-48 overflow-y-auto mt-2">
+                      <div className="text-slate-500 pb-1.5 border-b border-slate-900/50 select-none">
+                        ⚙️ Android WebView 至 Core API 直连诊断记录:
+                      </div>
+                      {androidHealthLogs.map((log, index) => (
+                        <div key={index} className="whitespace-pre-wrap break-all select-all py-0.5 text-slate-300">
+                          {log}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* WEBDAV EXPANDED WITH PORT AND FOLDER / PATH SUPPORT */}
