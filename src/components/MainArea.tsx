@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { NavState, Note, CalendarEvent } from '../types';
 import { parseMarkdown } from '../utils/markdown';
 import { getLunarInfo } from '../utils/lunar';
@@ -645,6 +646,96 @@ export default function MainArea({
       await import('../lib/api').then(m => m.probeKernel(sessionId, 'frontend', 'ftp', 'send_request', 'start', '向 Kernel 代理层发送测试联通请求'));
 
       const apiBase = getApiBaseUrl();
+
+      console.log("========== FTP DEBUG ==========");
+      console.log("FTP apiBase =", apiBase);
+      console.log(
+        "sovereign_sync_url =",
+        safeStorage.getItem("sovereign_sync_url")
+      );
+      console.log(
+        "Capacitor Native =",
+        Capacitor.isNativePlatform()
+      );
+      console.log("===============================");
+
+      setFtpTestResultLogs(prev => [
+        ...prev,
+        {
+          timestamp: new Date().toLocaleTimeString(),
+          status: 'info',
+          layer: 'frontend',
+          message: `🔍 FTP apiBase = ${apiBase}`,
+          step: 'debug'
+        },
+        {
+          timestamp: new Date().toLocaleTimeString(),
+          status: 'info',
+          layer: 'frontend',
+          message: `🔍 sovereign_sync_url = ${
+            safeStorage.getItem('sovereign_sync_url') || '(null)'
+          }`,
+          step: 'debug'
+        },
+        {
+          timestamp: new Date().toLocaleTimeString(),
+          status: 'info',
+          layer: 'frontend',
+          message: `🔍 Capacitor Native = ${Capacitor.isNativePlatform()}`,
+          step: 'debug'
+        }
+      ]);
+
+      // Direct pre-test health connection
+      try {
+        setFtpTestResultLogs(prev => [
+          ...prev,
+          {
+            timestamp: new Date().toLocaleTimeString(),
+            status: 'info',
+            layer: 'frontend',
+            message: `🔍 发起直连探针测试: ${apiBase}/health ...`,
+            step: 'debug'
+          }
+        ]);
+        const r = await fetch(`${apiBase}/health`);
+
+        setFtpTestResultLogs(prev => [
+          ...prev,
+          {
+            timestamp: new Date().toLocaleTimeString(),
+            status: 'ok',
+            layer: 'frontend',
+            message: `🔍 Health HTTP Status = ${r.status}`,
+            step: 'debug'
+          }
+        ]);
+
+        const txt = await r.text();
+
+        setFtpTestResultLogs(prev => [
+          ...prev,
+          {
+            timestamp: new Date().toLocaleTimeString(),
+            status: 'ok',
+            layer: 'frontend',
+            message: `🔍 Health Response = ${txt}`,
+            step: 'debug'
+          }
+        ]);
+
+      } catch (e: any) {
+        setFtpTestResultLogs(prev => [
+          ...prev,
+          {
+            timestamp: new Date().toLocaleTimeString(),
+            status: 'error',
+            layer: 'frontend',
+            message: `🔍 Health Fetch Failed = ${e.message || e}`,
+            step: 'debug'
+          }
+        ]);
+      }
       
       // Setup probe polling
       let isFetching = true;
