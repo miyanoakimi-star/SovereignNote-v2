@@ -50,6 +50,70 @@ SovereignNote 是一款离线优先、安全自治、无任何商业中心云服
 
 ---
 
+## 🔗 核心 API 路由与三层探针架构
+
+### 1. 全套 API 路由矩阵 (API Routing Matrix)
+
+SovereignNote 的 Rust Core (运行在 8787 端口或中继) 提供了以下标准路由，双端协同工作时应严格遵守路由定义：
+
+#### A. 兼容已有旧端点 (Legacy Compatibility Endpoints)
+- `GET /notes` -> 读取全部笔记 (旧)
+- `POST /notes/sync` -> 笔记同步 (旧)
+- `POST /notes/sync/force` -> 强制全量覆盖同步
+- `POST /notes/sync/test` -> 测试 LWW 原型连接
+- `POST /sync/ftp` -> 推送全部笔记至指定的 FTP 远程中继
+- `POST /sync/ftp/pull` -> 从指定 FTP 远程中继拉取历史并覆盖本地
+- `POST /sync/ftp/sync` -> 触发本地与 FTP 之间的双向合并同步
+- `POST /sync/ftp/test` -> 联通性双向探测与中继可用性测试
+
+#### B. 稳定高可用 LWW + SSE 架构端点 (New Stable LWW & Real-time Endpoints)
+- `GET /notes/get` -> 本地全量安全读取
+- `POST /notes/update` -> 本地单篇笔记更新 + SSE 广播触发
+- `GET /sync/pull` -> 本地最新 LWW 一致性数据包拉取
+- `POST /sync/push` -> 客户端 LWW 差分合并推送并落盘
+- `GET /events` -> 基于 Server-Sent Events (SSE) 的实时长连接事件总线，用于多端实时联动
+
+#### C. 同步日志与核心系统探针 (Logs & Probe Systems)
+- `GET /sync/logs` -> 查询本地同步调试日志排错流
+- `DELETE /sync/logs` -> 清空同步日志
+- `POST /sync/logs/add` -> 写入单条系统/合并动作日志
+- `GET /health` -> 具有 1 秒超时死锁保护的健康监控插口
+- `POST /probe` -> 注册三层探针链路状态事件
+- `GET /probe/list` -> 查询多端调试探针链路数据
+- `/backup/*` -> 本地包结构一键打包归档与灾备数据库导入导出路由
+
+### 2. 三层探针调试系统 (Three-Layer Sync Probe System)
+
+为解决移动端 (Android WebView)、本地内核 (Rust Node) 和远程中继 (FTP/WebDAV Server) 之间复杂长链路下的“静默排错难”痛点，系统架构内建了**三层探针调试 network**：
+
+```
+[ 层级 1: Frontend UI ]  ---(探针探测)--->  [ 层级 2: Rust Kernel ]  ---(外挂探测)--->  [ 层级 3: Remote Relay (FTP/WebDAV) ]
+       (React 视图层)                           (SQLite 与数据一致)                       (网络中继与无状态存储)
+```
+
+- **第一层：Web 视图层 (Frontend)**：主动记录用户操作流、网络发起点、存储读写意图，将前端行为显式推入探针事件中。
+- **第二层：本地内核层 (Local Kernel)**：记录核心 SQLite 处理、锁获取、LWW 合并事件，捕获网络层真实异常（如 Failed to Fetch）并记在 `health-log-viewer`。
+- **第三层：中继层 (Remote Relay)**：记录 FTP/WebDAV 实际握手、文件创建、目录授权与时间校准偏差。
+- **行为红线**：修改同步代码或新增子功能时，**必须**同步埋点并向上报送探针事件（使用 `/probe`），以便多端排查时可在日志控制面板一键追溯全链路调用树。
+
+### 3. 移动端 (Android) 与遗留系统兼容架构 (Capacitor Native)
+
+为了确保 Android 5.1.1 (如诺基亚 N1)、Android 6/7 以及 Android 13/15 全版本兼容性，基于 Capacitor 的客户端在脱离 PC 及 Rust Core 的独立环境中，通过 **Capacitor Native Plugin (Java)** 和前端 `mergeNotesLWW()` 实现对等的网络中继同步能力。
+
+#### A. FTP/WebDAV 的无后端设计 (No-Rust, No-Localhost for Android FTP)
+- **WebDAV**: 天然兼容 HTTP/HTTPS/XML，Android 5+ WebView 即可完美支持，通过前端网络层直接调度。
+- **FTP 的强约束**: **坚决禁止使用基于 Node Runtime 的库 (如 `basic-ftp`)**。WebView 缺少 Node 核心模块 (net, tls, stream)，强行 polyfill 代码在低级别 Android (如 5.1.1) 会导致极度不稳定甚至完全无法运行。
+- **Android FTP 实现方案**: 必须通过 Capacitor Plugin (`FTPPlugin`) 桥接 Android Java 层的 `Apache Commons Net FTPClient`，该方案不仅兼容 Android 4.x，环境隔离更好且极具稳定性。前端应暴露诸如 `await FTPPlugin.testConnection()`, `await FTPPlugin.pull()`, `await FTPPlugin.push()`, `await FTPPlugin.sync()` 的异步接口。
+
+#### B. 数据融合与 LWW 算法重用
+无论底层使用何种协议层 (WebDAV/FTP/REST)，拉取到远程数据后，**不必（且不能）重写冲突算法**，直接复用前端逻辑中的 `mergeNotesLWW(localNotes, remoteNotes)` 进行合并。
+1. 以 FTP 为例：下拉获取包含 `updated_at`、`deleted`、`id` 规范属性的 `notes.json` 文件。
+2. 在前端执行 `mergeNotesLWW(localNotes, remoteNotes)` 得到最终无状态偏序解。
+3. 执行上传，将新的全量 `notes.json` 推送到对应中继，完成一次端侧闭环同步。
+4. 这极大保障了多途径操作的平级性：“PC 开启时走局域网无状态 LWW 同步”、“PC 离线时在 Android 端直连 FTP 同步”，任意路线均达到相同的最新状态解。
+
+---
+
 ## 🔄 冲突解决共识：LWW-Element-Set 算法规范
 
 系统所有的标签、配置、笔记版本冲突，均通过 Client 侧与 Rust Core 双端统一执行 LWW-Register 合并。

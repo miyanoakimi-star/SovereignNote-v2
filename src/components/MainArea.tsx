@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { FTP } from '../plugins/ftp';
 import { NavState, Note, CalendarEvent } from '../types';
 import { parseMarkdown } from '../utils/markdown';
 import { getLunarInfo } from '../utils/lunar';
@@ -642,6 +643,54 @@ export default function MainArea({
     }
 
     try {
+      if (Capacitor.isNativePlatform()) {
+        try {
+          await import('../lib/api').then(m => m.probeKernel(sessionId, 'frontend', 'ftp', 'native_start', 'start', '开始调用Android Native FTP插件'));
+          
+          setFtpTestResultLogs(prev => [...prev, {
+            timestamp: new Date().toLocaleTimeString(),
+            status: 'info',
+            layer: 'frontend',
+            message: '🔍 正在使用 Android Native 插件直接发起 FTP 连接探测...',
+            step: 'debug'
+          }]);
+
+          const result = await FTP.testConnection({
+            host,
+            port: Number(ftpConfig?.port) || 21,
+            username: user,
+            password: pass
+          });
+          
+          console.log("FTP native plugin result", result);
+          setFtpTestStatus('success');
+          setBackupStatus('FTP 身份授权及挂载路径寻址成功！通道已联通。');
+          setFtpTestResultLogs(prev => [...prev, {
+            timestamp: new Date().toLocaleTimeString(),
+            status: 'ok',
+            layer: 'frontend',
+            message: `🔍 Native FTP Connection Success: ${result.message}`,
+            step: 'debug'
+          }]);
+          
+          await import('../lib/api').then(m => m.probeKernel(sessionId, 'frontend', 'ftp', 'native_connected', 'ok', 'FTP服务器连接成功'));
+        } catch (nativeErr: any) {
+          console.error("Native FTP error", nativeErr);
+          setFtpTestStatus('error');
+          setBackupStatus('FTP 连接测试失败: ' + nativeErr.message);
+          setFtpTestResultLogs(prev => [...prev, {
+            timestamp: new Date().toLocaleTimeString(),
+            status: 'error',
+            layer: 'frontend',
+            message: `❌ Native FTP Failed: ${nativeErr.message}`,
+            step: 'network'
+          }]);
+          await import('../lib/api').then(m => m.probeKernel(sessionId, 'frontend', 'ftp', 'native_error', 'error', nativeErr.message || 'FTP连接异常'));
+        }
+        fetchRealSyncLogs();
+        return;
+      }
+
       // 1. Frontend active probe logging
       await import('../lib/api').then(m => m.probeKernel(sessionId, 'frontend', 'ftp', 'send_request', 'start', '向 Kernel 代理层发送测试联通请求'));
 
