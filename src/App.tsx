@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { SovereignNative } from './plugins/sovereignNative';
 import { NavState, Note, CalendarEvent } from './types';
 import Sidebar from './components/Sidebar';
 import PartitionBar from './components/PartitionBar';
@@ -175,6 +177,52 @@ export default function App() {
     window.addEventListener('sovereign_app_state_updated', handleStateUpdated);
     return () => window.removeEventListener('sovereign_app_state_updated', handleStateUpdated);
   }, []);
+
+  // Check for incoming shared intents from other Android apps
+  useEffect(() => {
+    let active = true;
+    const checkForShareIntent = async () => {
+      try {
+        if (!Capacitor.isNativePlatform()) return;
+        const res = await SovereignNative.getPendingShareIntent();
+        if (active && res.hasShare && res.data) {
+          const title = res.data.title || '系统分享内容';
+          const text = res.data.text || '';
+          
+          addSyncLog('INFO', `[系统分享] 接收到 Android 系统分享意图: 标题=${title}, 内容长度=${text.length}字`);
+          
+          // Formulate Markdown content with received title and URL/text
+          let formattedContent = `# ${title}\n\n`;
+          if (text.startsWith('http://') || text.startsWith('https://')) {
+            formattedContent += `🔗 **来源链接**: [${text}](${text})\n\n`;
+          } else {
+            formattedContent += `${text}\n\n`;
+          }
+          formattedContent += `*分享自 Android 系统设备 (接收于 ${new Date().toLocaleString()})*\n`;
+
+          handleCreateNote(title, formattedContent, '系统分享');
+          alert(`📥 成功通过 Android 分享创建一篇新备忘：\n「${title}」`);
+        }
+      } catch (err) {
+        console.warn('Failed to fetch pending share intent:', err);
+      }
+    };
+
+    // Run on startup
+    checkForShareIntent();
+
+    // Also run when window gets focus (returns from background share)
+    window.addEventListener('focus', checkForShareIntent);
+    
+    // Periodically poll every 3 seconds to be fast
+    const interval = setInterval(checkForShareIntent, 3000);
+
+    return () => {
+      active = false;
+      window.removeEventListener('focus', checkForShareIntent);
+      clearInterval(interval);
+    };
+  }, [notes]);
 
   useEffect(() => {
     let cached = getLocalNotes();
