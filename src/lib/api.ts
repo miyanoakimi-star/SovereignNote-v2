@@ -199,6 +199,33 @@ export async function addSyncLog(
   protocol?: string,
   step?: string
 ): Promise<boolean> {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      console.log(`[NativeLog] [${level}] [${protocol || 'General'}] [${step || 'none'}] ${message}`);
+      const localLogsStr = safeStorage.getItem('sovereign_android_sync_logs') || '[]';
+      const localLogs = JSON.parse(localLogsStr);
+      localLogs.unshift({
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        timestamp: new Date().toLocaleTimeString(),
+        level,
+        message,
+        session_id,
+        protocol,
+        step
+      });
+      // Keep only the last 500 logs to prevent LocalStorage bloat
+      if (localLogs.length > 500) {
+        localLogs.length = 500;
+      }
+      safeStorage.setItem('sovereign_android_sync_logs', JSON.stringify(localLogs));
+      window.dispatchEvent(new Event('sovereign_sync_logs_updated'));
+      return true;
+    } catch (e) {
+      console.error('Failed to save native sync log locally:', e);
+      return false;
+    }
+  }
+
   try {
     const response = await fetch(`${getApiBaseUrl()}/sync/logs/add`, {
       method: 'POST',

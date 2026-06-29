@@ -250,6 +250,14 @@ export default function MainArea({
     if (activeSettingsTab === 'sync') {
       fetchRealSyncLogs();
     }
+    
+    const handleLogsUpdate = () => {
+      fetchRealSyncLogs();
+    };
+    window.addEventListener('sovereign_sync_logs_updated', handleLogsUpdate);
+    return () => {
+      window.removeEventListener('sovereign_sync_logs_updated', handleLogsUpdate);
+    };
   }, [activeSettingsTab]);
 
   // Calendar Year/Month switching state: focusing on May & June 2026
@@ -645,7 +653,7 @@ export default function MainArea({
     try {
       if (Capacitor.isNativePlatform()) {
         try {
-          await import('../lib/api').then(m => m.probeKernel(sessionId, 'frontend', 'ftp', 'native_start', 'start', '开始调用Android Native FTP插件'));
+          await addSyncLog('INFO', 'Android 客户端开始调用 Native 插件执行【连接测试】。', sessionId, 'ftp', 'native_start');
           
           setFtpTestResultLogs(prev => [...prev, {
             timestamp: new Date().toLocaleTimeString(),
@@ -659,7 +667,8 @@ export default function MainArea({
             host,
             port: Number(ftpConfig?.port) || 21,
             username: user,
-            password: pass
+            password: pass,
+            path: ftpConfig?.path || ''
           });
           
           console.log("FTP native plugin result", result);
@@ -673,7 +682,7 @@ export default function MainArea({
             step: 'debug'
           }]);
           
-          await import('../lib/api').then(m => m.probeKernel(sessionId, 'frontend', 'ftp', 'native_connected', 'ok', 'FTP服务器连接成功'));
+          await addSyncLog('SUCCESS', `Android Native FTP 连接测试成功: ${result.message}`, sessionId, 'ftp', 'native_connected');
         } catch (nativeErr: any) {
           console.error("Native FTP error", nativeErr);
           setFtpTestStatus('error');
@@ -685,7 +694,7 @@ export default function MainArea({
             message: `❌ Native FTP Failed: ${nativeErr.message}`,
             step: 'network'
           }]);
-          await import('../lib/api').then(m => m.probeKernel(sessionId, 'frontend', 'ftp', 'native_error', 'error', nativeErr.message || 'FTP连接异常'));
+          await addSyncLog('ERROR', `Android Native FTP 连接测试异常: ${nativeErr.message || 'FTP连接异常'}`, sessionId, 'ftp', 'native_error');
         }
         fetchRealSyncLogs();
         return;
@@ -884,6 +893,165 @@ export default function MainArea({
         message: `❌ 因为底层通信受阻，无法连通至本地后台运行微内核。报错详情: ${err.message}`,
         step: 'network'
       }]);
+    } finally {
+      fetchRealSyncLogs();
+    }
+  };
+
+  const getNativeFtpOptions = () => {
+    const hostStr = ftpConfig?.host || '';
+    let host = hostStr;
+    let port = 21;
+    if (hostStr.includes(':')) {
+      const parts = hostStr.split(':');
+      host = parts[0];
+      port = Number(parts[1]) || 21;
+    }
+    return {
+      host,
+      port: ftpConfig?.port ? Number(ftpConfig.port) : port,
+      user: ftpConfig?.user || '',
+      pass: ftpConfig?.pass || '',
+      username: ftpConfig?.user || '',
+      password: ftpConfig?.pass || '',
+      path: ftpConfig?.path || '',
+    };
+  };
+
+  const handleAndroidFtpPush = async () => {
+    setBackupStatus('正在通过 Android Native 模块上传备份文件...');
+    await addSyncLog('INFO', `[FTP 同步启动] Android 客户端开始调用 Native 插件执行【推送备份】。`, undefined, 'ftp', 'native_push_start');
+    fetchRealSyncLogs();
+    
+    try {
+      const opts = getNativeFtpOptions();
+      const localNotes = await import('../lib/api').then(m => m.getLocalNotes());
+      const content = JSON.stringify(localNotes, null, 2);
+
+      const result = await FTP.uploadFile({
+        ...opts,
+        filename: 'sovereign_backup.json',
+        content
+      });
+
+      if (result.success) {
+        setBackupStatus('Android Native FTP 推送备份成功');
+        await addSyncLog('SUCCESS', `Android Native FTP 增量备份推送成功: ${result.message || '数据已安全推流落盘'}`, undefined, 'ftp', 'native_push_end');
+      } else {
+        setBackupStatus('Android Native FTP 错误: 上传失败');
+        await addSyncLog('ERROR', `Android Native FTP 错误: 上传失败`, undefined, 'ftp', 'native_push_error');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setBackupStatus('Android Native FTP 连接失败: ' + err.message);
+      await addSyncLog('ERROR', `Android Native FTP 连接失败: ${err.message}`, undefined, 'ftp', 'native_push_error');
+    } finally {
+      fetchRealSyncLogs();
+    }
+  };
+
+  const handleAndroidFtpPull = async () => {
+    setBackupStatus('正在通过 Android Native 模块下载并合并备份...');
+    await addSyncLog('INFO', `[FTP 同步启动] Android 客户端开始调用 Native 插件执行【拉取合并】。`, undefined, 'ftp', 'native_pull_start');
+    fetchRealSyncLogs();
+
+    try {
+      const opts = getNativeFtpOptions();
+      const result = await FTP.downloadFile({
+        ...opts,
+        filename: 'sovereign_backup.json'
+      });
+
+      if (result.success && result.content) {
+        let downloadedNotes = [];
+        try {
+          const parsed = JSON.parse(result.content);
+          if (Array.isArray(parsed)) {
+            downloadedNotes = parsed;
+          } else if (parsed && Array.isArray(parsed.notes)) {
+            downloadedNotes = parsed.notes;
+          }
+        } catch (parseErr: any) {
+          throw new Error('解析远程备份 JSON 格式失败: ' + parseErr.message);
+        }
+
+        const localNotes = await import('../lib/api').then(m => m.getLocalNotes());
+        const mergeNotesLWW = await import('../lib/api').then(m => m.mergeNotesLWW);
+        const saveLocalNotes = await import('../lib/api').then(m => m.saveLocalNotes);
+
+        const merged = mergeNotesLWW(localNotes, downloadedNotes);
+        saveLocalNotes(merged);
+        if (setNotes) setNotes(merged);
+
+        setBackupStatus('Android Native FTP 拉取合并成功！');
+        await addSyncLog('SUCCESS', `Android Native FTP 拉取并融合成功。共合流 ${merged.length} 篇备忘。`, undefined, 'ftp', 'native_pull_end');
+      } else {
+        setBackupStatus('Android Native FTP 拉取错误: 下载失败');
+        await addSyncLog('ERROR', `Android Native FTP 拉取错误: 下载失败`, undefined, 'ftp', 'native_pull_error');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setBackupStatus('Android Native FTP 连接/下载失败: ' + err.message);
+      await addSyncLog('ERROR', `Android Native FTP 连接/下载失败: ${err.message}`, undefined, 'ftp', 'native_pull_error');
+    } finally {
+      fetchRealSyncLogs();
+    }
+  };
+
+  const handleAndroidFtpSync = async () => {
+    setBackupStatus('正在通过 Android Native 模块执行双向同步...');
+    await addSyncLog('INFO', `[FTP 同步启动] Android 客户端开始调用 Native 插件执行【双向合并融合同步】。`, undefined, 'ftp', 'native_sync_start');
+    fetchRealSyncLogs();
+
+    try {
+      const opts = getNativeFtpOptions();
+      let downloadedNotes = [];
+
+      try {
+        const result = await FTP.downloadFile({
+          ...opts,
+          filename: 'sovereign_backup.json'
+        });
+        if (result.success && result.content) {
+          const parsed = JSON.parse(result.content);
+          if (Array.isArray(parsed)) {
+            downloadedNotes = parsed;
+          } else if (parsed && Array.isArray(parsed.notes)) {
+            downloadedNotes = parsed.notes;
+          }
+        }
+      } catch (dlErr: any) {
+        console.log("Could not download remote file, treating as empty (normal for first sync):", dlErr);
+        await addSyncLog('WARN', `未找到远程备份文件 (sovereign_backup.json)，将本地数据作为初始版本上传。`, undefined, 'ftp', 'native_sync_download');
+      }
+
+      const localNotes = await import('../lib/api').then(m => m.getLocalNotes());
+      const mergeNotesLWW = await import('../lib/api').then(m => m.mergeNotesLWW);
+      const saveLocalNotes = await import('../lib/api').then(m => m.saveLocalNotes);
+
+      const merged = mergeNotesLWW(localNotes, downloadedNotes);
+      saveLocalNotes(merged);
+      if (setNotes) setNotes(merged);
+
+      // Upload merged notes back to FTP
+      const content = JSON.stringify(merged, null, 2);
+      const uploadResult = await FTP.uploadFile({
+        ...opts,
+        filename: 'sovereign_backup.json',
+        content
+      });
+
+      if (uploadResult.success) {
+        setBackupStatus('Android Native FTP 双向合并同步已成功！');
+        await addSyncLog('SUCCESS', `Android Native FTP 双向状态自动纠偏和合流成功。全局收敛至 ${merged.length} 篇备忘状态。`, undefined, 'ftp', 'native_sync_end');
+      } else {
+        setBackupStatus('Android Native FTP 双向同步错误: 最终上传失败');
+        await addSyncLog('ERROR', `Android Native FTP 双向同步错误: 最终上传失败`, undefined, 'ftp', 'native_sync_error');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setBackupStatus('Android Native FTP 双向同步失败: ' + err.message);
+      await addSyncLog('ERROR', `Android Native FTP 双向同步失败: ${err.message}`, undefined, 'ftp', 'native_sync_error');
     } finally {
       fetchRealSyncLogs();
     }
@@ -1817,6 +1985,10 @@ export default function MainArea({
                       <button 
                         type="button"
                         onClick={async () => {
+                          if (Capacitor.isNativePlatform()) {
+                            await handleAndroidFtpPush();
+                            return;
+                          }
                           setBackupStatus('正在尝试上传 FTP...');
                           await addSyncLog('INFO', `[FTP 同步启动] 客户端发出手动仅限【推送备份】指令。`);
                           fetchRealSyncLogs();
@@ -1861,6 +2033,10 @@ export default function MainArea({
                       <button 
                         type="button"
                         onClick={async () => {
+                          if (Capacitor.isNativePlatform()) {
+                            await handleAndroidFtpPull();
+                            return;
+                          }
                           setBackupStatus('正在尝试从 FTP 下载并合并备份...');
                           await addSyncLog('INFO', `[FTP 同步启动] 客户端发出手动仅限【拉取并融合】指令。`);
                           fetchRealSyncLogs();
@@ -1897,6 +2073,10 @@ export default function MainArea({
                       <button 
                         type="button"
                         onClick={async () => {
+                          if (Capacitor.isNativePlatform()) {
+                            await handleAndroidFtpSync();
+                            return;
+                          }
                           setBackupStatus('正在执行 FTP 双向同步 (下载->本地 LWW 合并->重新上载最新数据)...');
                           await addSyncLog('INFO', `[FTP 同步启动] 客户端发出主体【双向闭环同步】指令。`);
                           fetchRealSyncLogs();
