@@ -316,14 +316,12 @@ export default function PartitionBar({
           {navState === 'calendar' && <Calendar className="w-4 h-4 mr-2 text-emerald-400" />}
           {navState === 'settings' && <Sliders className="w-4 h-4 mr-2 text-sky-400" />}
           {navState === 'about' && <Info className="w-4 h-4 mr-2 text-sky-400" />}
-          {navState === 'releases' && <Rocket className="w-4 h-4 mr-2 text-amber-400 animate-pulse" />}
           {navState === 'tools' && <Rocket className="w-4 h-4 mr-2 text-amber-400 animate-pulse" />}
           {navState === 'notes' && '笔记列表'}
           {navState === 'tags' && '多级标签目录'}
           {navState === 'calendar' && '今日日程计划'}
           {navState === 'settings' && '系统管理'}
           {navState === 'about' && '关于与版本'}
-          {navState === 'releases' && '自动化部署中心'}
           {navState === 'tools' && '系统小工具'}
         </h2>
         <button onClick={() => setIsOpen(false)} className="text-slate-500 hover:text-slate-300">
@@ -911,18 +909,7 @@ export default function PartitionBar({
       {navState === 'tools' && (
         <div className="flex-1 flex flex-col p-4 overflow-y-auto space-y-4 animate-fade-in">
           {/* Tool Selector Tab Bar */}
-          <div className="grid grid-cols-3 gap-1 bg-slate-950/40 p-1 rounded-xl border border-slate-800/80">
-            <button
-              onClick={() => setActiveTool('releases')}
-              className={`py-2 rounded-lg text-[10px] font-bold text-center transition-all flex flex-col items-center justify-center gap-1 ${
-                activeTool === 'releases'
-                  ? 'bg-indigo-600 text-slate-100 shadow border border-indigo-505 font-extrabold shadow-sm'
-                  : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'
-              }`}
-            >
-              <Rocket className="w-3.5 h-3.5" />
-              <span>版本发布</span>
-            </button>
+          <div className="grid grid-cols-2 gap-1 bg-slate-950/40 p-1 rounded-xl border border-slate-800/80">
             <button
               onClick={() => setActiveTool('backup')}
               className={`py-2 rounded-lg text-[10px] font-bold text-center transition-all flex flex-col items-center justify-center gap-1 ${
@@ -950,40 +937,6 @@ export default function PartitionBar({
           <div className="border-t border-slate-800/50 pt-1 shrink-0"></div>
 
           {/* Render active tool panel inside the sub-sidebar */}
-          {activeTool === 'releases' && (
-            <div className="space-y-4 animate-fade-in">
-              <div className="p-3 bg-indigo-950/20 border border-indigo-900/40 rounded-xl space-y-2">
-                <h3 className="text-xs font-bold text-indigo-400 flex items-center gap-1.5">
-                  <Rocket className="w-3.5 h-3.5 animate-bounce" /> CI/CD 自动部署已就绪
-                </h3>
-                <p className="text-[10px] text-slate-400 leading-relaxed">
-                  检测到内置 <code>.github/workflows/build.yml</code>。推送 <code>v*</code> 标签自动编译 Windows / Android 独立客户端。
-                </p>
-              </div>
-
-              <div className="space-y-1 bg-slate-950/40 p-3 rounded-lg border border-slate-800">
-                <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono">触发规则</span>
-                <div className="flex items-center justify-between text-xs py-1">
-                  <span className="font-mono text-slate-300">tags: ['v*']</span>
-                  <span className="text-[9px] bg-emerald-600/10 text-emerald-400 border border-emerald-500/10 px-1.5 py-0.2 rounded-full font-bold">已绑定</span>
-                </div>
-              </div>
-
-              <div className="space-y-1 bg-slate-950/40 p-3 rounded-lg border border-slate-800">
-                <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider font-mono">目标平台</span>
-                <div className="text-[10px] text-slate-300 space-y-1.5 pt-1 font-mono">
-                  <div className="flex justify-between">
-                    <span>• Windows Desktop (x64)</span>
-                    <span className="text-slate-500">MSVC 编译</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>• Android Device (APK)</span>
-                    <span className="text-slate-500">cargo-apk</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
 
           {activeTool === 'backup' && (
             <div className="space-y-4 animate-fade-in">

@@ -99,7 +99,7 @@ export default function App() {
 
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
-  const [activeTool, setActiveTool] = useState<string>('releases');
+  const [activeTool, setActiveTool] = useState<string>('backup');
 
   useEffect(() => {
     const handleTouch = () => {

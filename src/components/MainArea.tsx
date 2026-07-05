@@ -12,7 +12,7 @@ import { safeStorage } from '../utils/safeStorage';
 import { getApiBaseUrl, addSyncLog } from '../lib/api';
 import { 
   Layout, Eye, FileDown, EyeOff, Settings, Calendar as CalendarIcon, 
-  Database, ChevronLeft, ChevronRight, X, Server, Sliders, Rocket, Terminal, Check, RefreshCw, Upload, Info,
+  Database, ChevronLeft, ChevronRight, X, Server, Sliders, Rocket, Terminal, RefreshCw, Upload, Info,
   Bold, Italic, Code, Link, Image, List, ListOrdered, Quote, Table, CheckSquare
 } from 'lucide-react';
 
@@ -102,7 +102,7 @@ export default function MainArea({
   const [lwwTestStatus, setLwwTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [lwwTestResultLogs, setLwwTestResultLogs] = useState<{ timestamp?: string; status?: string; level?: string; message: string; step?: string; layer?: string }[]>([]);
   const [backupStatus, setBackupStatus] = useState<string>('');
-  const [activeSettingsTab, setActiveSettingsTab] = useState<'ui' | 'sync'>('ui');
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'appearance' | 'editor' | 'calendar' | 'notifications' | 'sync' | 'about' | 'developer'>('appearance');
   const [androidHealthStatus, setAndroidHealthStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [androidHealthLogs, setAndroidHealthLogs] = useState<string[]>([]);
 
@@ -336,12 +336,9 @@ export default function MainArea({
   // Export menu toggle inside editor
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
-  // Release Manager local states
-  const [releaseVersion, setReleaseVersion] = useState('v3.0.0');
-  const [releaseTitle, setReleaseTitle] = useState('SovereignNote v3.0.0 终极同步架构升级与状态持久化');
-  const [releaseChangelog, setReleaseChangelog] = useState('## 🎉 SovereignNote v3.0.0 核心更新\n\n- **🧠 全维度标签与状态同步**: 彻底解决了曾经标签配置只保留在本地的问题。我们现已将全局系统组态包入 LWW 底层引擎，完成极致同步。\n- **📦 全景时间机器压缩备份**: 将本地存储的状态一揽子带入 ZIP 归档！');
-  const [releaseLog, setReleaseLog] = useState<string[]>([]);
-  const [isPackaging, setIsPackaging] = useState(false);
+  // Release Manager static constants
+  const releaseVersion = 'v3.2.2';
+  const releaseChangelog = '## 🎉 SovereignNote v3.2.2 核心更新\n\n- **🧠 全维度标签与状态同步**: 彻底解决了曾经标签配置只保留在本地的问题。我们现已将全局系统组态包入 LWW 底层引擎，完成极致同步。\n- **📦 全景时间机器压缩备份**: 将本地存储的状态一揽子带入 ZIP 归档！';
 
   // Global Font Size sizing classes mapped to level 1 - 5
   const getFontSizeClasses = (level: number) => {
@@ -1743,53 +1740,55 @@ export default function MainArea({
         <div className="h-14 px-8 border-b border-slate-800 flex items-center shrink-0 justify-between">
           <div className="flex items-center">
             <Settings className="w-5 h-5 mr-3 text-indigo-400 animate-spin-slow" />
-            <h1 className="font-bold text-slate-100">系统设置中心</h1>
+            <h1 className="font-bold text-slate-100 font-sans">系统设置中心</h1>
           </div>
           <div className="text-slate-500 text-xs font-mono">
-            {activeSettingsTab === 'ui' ? '🎨 界面微调' : '☁️ 数据容灾'}
+            {activeSettingsTab === 'appearance' ? '🎨 界面控制' : activeSettingsTab === 'editor' ? '✍️ 编辑器微调' : activeSettingsTab === 'calendar' ? '📅 日历设置' : activeSettingsTab === 'notifications' ? '🔔 系统通知' : activeSettingsTab === 'sync' ? '☁️ 同步与备份' : activeSettingsTab === 'about' ? 'ℹ️ 关于系统' : '💻 开发者选项'}
           </div>
         </div>
 
-        {/* 每一个大类一个页面：通过 Sub Tab 切换, 页面彻底分流 */}
-        <div className="px-8 py-3 bg-slate-950/40 border-b border-slate-800 flex items-center gap-4">
-          <div className="flex bg-slate-900/80 p-1 rounded-xl border border-slate-800 max-w-sm w-full">
-            <button
-              type="button"
-              onClick={() => setActiveSettingsTab('ui')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all ${
-                activeSettingsTab === 'ui'
-                  ? 'bg-indigo-600 text-white shadow-sm font-black'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Sliders className="w-4 h-4" />
-              🎨 界面控制
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveSettingsTab('sync')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-bold rounded-lg transition-all ${
-                activeSettingsTab === 'sync'
-                  ? 'bg-indigo-600 text-white shadow-sm font-black'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Database className="w-4 h-4" />
-              ☁️ 同步与备份
-            </button>
+        {/* 7个大类切换，页面彻底分流 */}
+        <div className="px-8 py-3 bg-slate-950/40 border-b border-slate-800 flex items-center gap-4 overflow-x-auto shrink-0">
+          <div className="flex flex-wrap gap-1.5 bg-slate-900/40 p-1 rounded-xl border border-slate-850/60 w-full">
+            {[
+              { id: 'appearance', label: '🎨 外观模式', icon: Sliders },
+              { id: 'editor', label: '✍️ 编辑器', icon: Bold },
+              { id: 'calendar', label: '📅 日历设置', icon: CalendarIcon },
+              { id: 'notifications', label: '🔔 系统通知', icon: Info },
+              { id: 'sync', label: '☁️ 同步与备份', icon: Database },
+              { id: 'about', label: 'ℹ️ 关于系统', icon: Info },
+              { id: 'developer', label: '💻 开发者', icon: Terminal },
+            ].map((tab) => {
+              const IconComp = tab.icon;
+              const isSelected = activeSettingsTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveSettingsTab(tab.id as any)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    isSelected
+                      ? 'bg-indigo-600 text-white shadow-sm font-black'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/45'
+                  }`}
+                >
+                  <IconComp className="w-3.5 h-3.5" />
+                  {tab.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
         <div className="p-8 max-w-2xl pb-16">
-          {activeSettingsTab === 'ui' && (
+          {activeSettingsTab === 'appearance' && (
             <div className="space-y-8 animate-fade-in">
               {/* MULTI_DEVICE ADAPTIVE & ENV SETTINGS */}
               <div className="space-y-4">
                 <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                  <Sliders className="w-4 h-4 text-emerald-400" /> 多端真机环境与自适应无障碍管理
+                  <Sliders className="w-4 h-4 text-emerald-400" /> 外观主题模式与设备适配
                 </h2>
                 <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-6">
-                  
                   {/* Theme Selector Section */}
                   <div className="space-y-2">
                     <h3 className="font-semibold text-sm">🔆 系统视觉主题模式</h3>
@@ -1851,13 +1850,52 @@ export default function MainArea({
                     </div>
                   </div>
 
-                  {/* Sizing Detail Slider */}
-                  <div className="space-y-4 pt-4 border-t border-slate-800">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-semibold text-sm">全局字号调节 (当前等级 {fontSizeLevel}/5)</h3>
-                        <p className="text-xs text-slate-500 mt-1">支持1至5级无障碍大小字体，让多视疲劳用户轻而易举体验。5级大字特别友好。</p>
+                  {/* UI Scale Slider */}
+                  {setUiScale && (
+                    <div className="space-y-2 pt-4 border-t border-slate-800">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <h3 className="font-semibold text-sm">细分界面微观 UI 调节比例</h3>
+                          <p className="text-xs text-slate-500 mt-1">此缩放由网页核心 DOM Matrix 引擎驱动。适合对更低物理分辨率的电子墨水屏等设备完成抗疲劳间距压缩。</p>
+                        </div>
+                        <span className="text-xs font-bold font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">{uiScale.toFixed(2)}x</span>
                       </div>
+                      <div className="flex items-center gap-4 bg-slate-950/40 p-4 rounded-lg">
+                        <input 
+                          type="range"
+                          min="0.5"
+                          max="2.0"
+                          step="0.05"
+                          value={uiScale}
+                          onChange={(e) => setUiScale(parseFloat(e.target.value))}
+                          className="flex-1 accent-indigo-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                        />
+                        <button 
+                          onClick={() => setUiScale(1.0)}
+                          className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg border border-slate-700 font-bold"
+                        >
+                          默认 1.0x
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeSettingsTab === 'editor' && (
+            <div className="space-y-8 animate-fade-in">
+              <div className="space-y-4">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Bold className="w-4 h-4 text-indigo-400" /> 编辑器及文字排版
+                </h2>
+                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-6">
+                  {/* Sizing Detail Slider */}
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="font-semibold text-sm">全局字号调节 (当前等级 {fontSizeLevel}/5)</h3>
+                      <p className="text-xs text-slate-500 mt-1">支持1至5级无障碍大小字体，让多视疲劳用户轻而易举体验。5级大字特别友好。</p>
                     </div>
                     <div className="flex items-center gap-4 bg-slate-950/40 p-4 rounded-lg">
                       <button 
@@ -1888,34 +1926,214 @@ export default function MainArea({
                         A+ 放大
                       </button>
                     </div>
-
-                    {setUiScale && (
-                      <div className="pt-2">
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-semibold text-xs text-slate-400">细分界面微观 UI 调节比例</h4>
-                          <span className="text-xs font-bold font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">{uiScale.toFixed(2)}x</span>
-                        </div>
-                        <div className="flex items-center gap-4 bg-slate-950/40 p-4 rounded-lg">
-                          <input 
-                            type="range"
-                            min="0.5"
-                            max="2.0"
-                            step="0.05"
-                            value={uiScale}
-                            onChange={(e) => setUiScale(parseFloat(e.target.value))}
-                            className="flex-1 accent-indigo-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
-                          />
-                          <button 
-                            onClick={() => setUiScale(1.0)}
-                            className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg border border-slate-700 font-bold"
-                          >
-                            默认 1.0x
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </div>
 
+                  {/* Fonts Info Box */}
+                  <div className="space-y-2 pt-4 border-t border-slate-800">
+                    <h3 className="font-semibold text-sm">✨ 主权设计语言字体对齐</h3>
+                    <p className="text-xs text-slate-500">
+                      SovereignNote 贯彻现代极简美学，为不同数据内容定制了专属性质的字体对齐：
+                    </p>
+                    <div className="p-4 bg-slate-950/40 rounded-xl border border-slate-800 space-y-3 font-mono text-xs">
+                      <div className="flex justify-between items-center pb-2 border-b border-slate-900">
+                        <span className="text-slate-400">📝 正文 / 笔记预览</span>
+                        <span className="font-sans text-slate-300 font-medium">Inter (优雅无衬线)</span>
+                      </div>
+                      <div className="flex justify-between items-center pb-2 border-b border-slate-900">
+                        <span className="text-slate-400">📊 数据视图 / 标题名</span>
+                        <span className="font-sans text-indigo-400 font-bold tracking-tight">Space Grotesk</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400">🖥️ 调试控制台 / 代码</span>
+                        <span className="text-emerald-400 font-medium">JetBrains Mono</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeSettingsTab === 'calendar' && (
+            <div className="space-y-8 animate-fade-in">
+              <div className="space-y-4">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <CalendarIcon className="w-4 h-4 text-indigo-400" /> 日历模块配置 (Calendar v2)
+                </h2>
+                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-6">
+                  <div className="space-y-2">
+                    <h3 className="font-semibold text-sm">📅 农历与干支显示支持</h3>
+                    <p className="text-xs text-slate-500">
+                      日历模块已经过 V2 升级，具备极速月历浏览、首次进入自动定位今天、今天卡片高亮等特性。
+                    </p>
+                    <div className="p-4 bg-slate-950/40 rounded-xl border border-slate-850 text-xs text-slate-300 space-y-3">
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-900">
+                        <span>显示农历月份传统名称 (如「正月」、「腊月」)</span>
+                        <span className="text-emerald-500 font-bold">● 已启用</span>
+                      </div>
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-900">
+                        <span>显示闰月标识 (如「闰二月」)</span>
+                        <span className="text-emerald-500 font-bold">● 已启用</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>显示干支纪年天干地支 (如「甲辰年」)</span>
+                        <span className="text-emerald-500 font-bold">● 已启用</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="p-4 bg-indigo-950/20 border border-indigo-900/30 rounded-xl">
+                    <h4 className="font-bold text-xs text-indigo-300 mb-1">🔗 双向笔记日程绑定机制</h4>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      日历支持一键点击具体日期建立本地记事、挂载定制时钟日程、并在侧边抽屉显示挂载日志，极度利于日程排期整理。
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeSettingsTab === 'notifications' && (
+            <div className="space-y-8 animate-fade-in">
+              <div className="space-y-4">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Info className="w-4 h-4 text-amber-400" /> 系统推送与多端通知
+                </h2>
+                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4">
+                  <div>
+                    <h3 className="font-semibold text-sm">🔔 多端离线同步提醒机制</h3>
+                    <p className="text-xs text-slate-500 mt-1">设置在发生局域网 LWW 合并、或是 WebDAV 远程中继推送拉取时的系统广播与通知栏挂载提醒。</p>
+                  </div>
+                  
+                  <div className="p-4 bg-slate-950/40 rounded-xl border border-slate-850 text-xs space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="font-bold text-slate-300">定时同步背景静默拉取提醒</span>
+                        <p className="text-[10px] text-slate-500">每当本地内核在后台触发冷拉取合并时，发出系统提示</p>
+                      </div>
+                      <div className="w-9 h-5 bg-indigo-600 rounded-full flex items-center justify-end px-0.5 cursor-pointer">
+                        <div className="w-4 h-4 bg-white rounded-full"></div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between pt-3 border-t border-slate-900">
+                      <div className="space-y-0.5">
+                        <span className="font-bold text-slate-300">LWW 最终写入裁决冲突通知</span>
+                        <p className="text-[10px] text-slate-500">当本地文章和远程时间戳不一致产生 LWW 自动裁决时，推送通知</p>
+                      </div>
+                      <div className="w-9 h-5 bg-indigo-600 rounded-full flex items-center justify-end px-0.5 cursor-pointer">
+                        <div className="w-4 h-4 bg-white rounded-full"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeSettingsTab === 'about' && (
+            <div className="space-y-8 animate-fade-in font-sans">
+              <div className="bg-slate-950/40 border border-slate-800 p-8 rounded-2xl flex flex-col items-center justify-center text-center space-y-4">
+                 <div className="w-16 h-16 rounded-xl bg-indigo-600 flex items-center justify-center text-3xl shadow-lg border border-indigo-400/30 font-black">S</div>
+                 <div>
+                   <h2 className="text-xl font-bold text-slate-100 font-sans">SovereignNote 主权笔记</h2>
+                   <p className="text-xs text-slate-400 mt-1 font-mono">Version: {releaseVersion}</p>
+                 </div>
+                 <p className="text-xs text-slate-400 leading-relaxed max-w-lg mt-2">
+                   一款深度贯彻主权自治、完全零依赖商业中心云服务的对等端分布式极客笔记系统。内建全终端屏幕自适应与强大的 Markdown/白板/导图 生产力套件。
+                 </p>
+              </div>
+
+              <div className="space-y-4">
+                <h2 className="text-xs font-bold text-sky-400 uppercase tracking-widest flex items-center gap-2 font-sans">
+                   ℹ️ 数据主权自治哲学 (Sovereign-by-Design)
+                </h2>
+                <div className="p-6 bg-slate-950/60 rounded-xl border border-slate-800 space-y-4 text-xs text-slate-300 leading-relaxed font-sans">
+                  <p>1. <b>离线高可靠工作</b>：本地基于轻量核心 Rust 开发的后台内核，保障数据秒级读写、SQLite 关系存储与离线抗灾。</p>
+                  <p>2. <b>多协议网络中继</b>：开放 WebDAV、FTP、本地局域网点 P2P 等多样化中继同步，不锁死任何单一存储介质。</p>
+                  <p>3. <b>最终一致性共识</b>：基于无重叠时间偏序的 <b>LWW-Element-Set (最后写入赢)</b> 冲突判定，实现跨手机、跨桌面、跨云端多源合并。</p>
+                  <p className="text-indigo-400 font-bold mt-2">“主权属于用户，离线即是自由。” —— SovereignNote 核心架构专家组</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeSettingsTab === 'developer' && (
+            <div className="space-y-8 animate-fade-in font-sans">
+              {/* LOCAL STORAGE CLEAR */}
+              <div className="space-y-4">
+                <h2 className="text-xs font-bold text-rose-450 uppercase tracking-widest flex items-center gap-2">
+                  <Database className="w-4 h-4 text-rose-400" /> 本地前端缓存清空与重置
+                </h2>
+                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4">
+                  <div>
+                    <h3 className="font-semibold text-sm">彻底清空笔记前端缓存数据库</h3>
+                    <p className="text-xs text-slate-500 mt-1">当前由于应用开启了离线优先架构，笔记内容会直接存储在您的浏览器缓存中。如果您在本地硬盘删除了数据库文件且希望网页数据随之消失，需点击此处清空前端缓存并重载页面。</p>
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button 
+                      onClick={() => {
+                        if (confirm('警告：此操作将彻底删除本浏览器中的所有 SovereignNote 笔记和同步配置，且无法恢复。仅适用于重置或脱离本设备前的数据清理。你确定要销毁前端缓存吗？')) {
+                          safeStorage.removeItem('sovereign_notes');
+                          safeStorage.removeItem('sovereign_events');
+                          window.location.reload();
+                        }
+                      }}
+                      className="px-4 py-2 bg-rose-900/50 hover:bg-rose-800/80 rounded-lg text-xs font-bold transition-all text-white border border-rose-500/30"
+                    >
+                      🗑️ 销毁全部前端缓存数据并重载页面
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* THREE-LAYER PROBE HEALTH TESTER */}
+              <div className="space-y-4">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 font-mono">
+                  <Terminal className="w-4 h-4 text-indigo-400 animate-pulse" /> 局域网服务接口与端口安全探针
+                </h2>
+                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4 font-sans">
+                  <div>
+                    <h3 className="font-semibold text-sm">双端直连健康探测插口</h3>
+                    <p className="text-xs text-slate-500 mt-1">测试网页端至本地运行的后台服务（默认端口 8787 或 127.0.0.1）的网络连通性与锁互斥保护状态。</p>
+                  </div>
+                  
+                  <div className="flex gap-3">
+                    <button 
+                      type="button"
+                      onClick={async () => {
+                        setAndroidHealthStatus('testing');
+                        setAndroidHealthLogs(prev => [...prev, `[PROBE] 发起健康探测: ${getApiBaseUrl()}/health`]);
+                        try {
+                          const res = await fetch(`${getApiBaseUrl()}/health`, { method: 'GET' });
+                          const data = await res.json();
+                          setAndroidHealthStatus('success');
+                          setAndroidHealthLogs(prev => [...prev, `[PROBE] 连通成功: ${JSON.stringify(data)}`]);
+                        } catch (e: any) {
+                          setAndroidHealthStatus('error');
+                          setAndroidHealthLogs(prev => [...prev, `[PROBE] 连接失败: ${e.message || String(e)}`]);
+                        }
+                      }}
+                      className="px-4 py-2 bg-slate-900 hover:bg-slate-850 border border-slate-850 text-slate-300 font-bold text-xs rounded-lg transition-all"
+                    >
+                      🔌 立即测试 8787 连通性
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => setAndroidHealthLogs([])}
+                      className="px-3 py-2 bg-slate-950 text-xs text-slate-500 hover:text-slate-300 transition-colors rounded-lg"
+                    >
+                      清空探针调试日志
+                    </button>
+                  </div>
+
+                  {androidHealthLogs.length > 0 && (
+                    <div className="p-4 bg-slate-950 rounded-xl border border-slate-900 font-mono text-[11px] text-emerald-400 space-y-1.5 max-h-40 overflow-y-auto">
+                      {androidHealthLogs.map((log, idx) => (
+                        <div key={idx} className="leading-relaxed">{log}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -3018,139 +3236,6 @@ export default function MainArea({
 
   // COMPREHENSIVE MULTI-TOOL INSTRUMENT INTERFACE
   if (navState === 'tools') {
-    const handleScannerGenerateChangelog = () => {
-      const activeNotes = notes.filter(n => !n.deleted);
-      const noteCount = activeNotes.length;
-      
-      const foundTagsSet = new Set<string>();
-      activeNotes.forEach(n => {
-        const matches = n.content.match(/(^|\s)#([a-zA-Z0-9_\u4e00-\u9fa5/]+)/g);
-        if (matches) {
-          matches.forEach(m => foundTagsSet.add(m.trim().substring(1)));
-        }
-      });
-      const tagCount = foundTagsSet.size;
-      const tagsString = Array.from(foundTagsSet).slice(0, 5).join(', ') || '无';
-      
-      const generated = `## 🚀 SovereignNote ${releaseVersion} 自动生成的更新日志\n\n### 📦 全量状态统计\n- 📝 **当前归档笔记**: 共 ${noteCount} 篇\n- 🏷️ **核心知识标签**: 共 ${tagCount} 种分类 (${tagsString}${foundTagsSet.size > 5 ? '...等' : ''})\n- 📅 **联动日程记录**: 共 ${customEvents.length} 个事件已绑定时钟\n\n### ✨ 基础更新改进\n- **分布式数据抗灾**: 基于 LWW-Element-Set (最后写入赢) 的冲突合并算法。\n- **极客部署工作流**: 集成标准 GitHub Actions 工作流，当推送 ${releaseVersion} tag 时将全自动化交叉编译。`;
-      setReleaseChangelog(generated);
-    };
-
-    const handleSimulateBuild = () => {
-      setIsPackaging(true);
-      setReleaseLog([]);
-      
-      const logs = [
-        "🔄 [Step 1] 初始化交叉编译环境及独立打包微容器...",
-        `⚙️ [Step 2] 正在对 ${notes.filter(n=>!n.deleted).length} 个本地原子化知识节点运行 LWW 共识验证...`,
-        "🔬 [Step 3] 校验并重组 6 阶阶梯递归索引树...",
-        "📂 [Step 4] 匹配内置 CI/CD github/workflows/build.yml 参数规范...",
-        "⚙️ [Step 5] 后台跨平台工具链启动: 准备 Windows x64 & ia32 MSVC 静态嵌入核心...",
-        "📱 [Step 6] cargo-apk 开始提取后端 dynamic 共享库并打包进 Android 宿主 APK...",
-        "💎 [Step 7] 压缩 React 降级前端资源并完成本地独立 Web 运行时打包机制...",
-        `✨ [Done] 发布物生成完毕！已生成标准分发版 SovereignNote_${releaseVersion}_bundle.json。`
-      ];
-
-      logs.forEach((logText, idx) => {
-        setTimeout(() => {
-          setReleaseLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${logText}`]);
-          if (idx === logs.length - 1) {
-            setIsPackaging(false);
-            
-            const bundle = {
-              version: releaseVersion,
-              title: releaseTitle,
-              changelog: releaseChangelog,
-              exported_at: Date.now(),
-              environment: {
-                app: "SovereignNote v2 (Rust 铁血版)",
-                engine: "LWW-Element-Set"
-              },
-              data: {
-                notes: notes,
-                customEvents: customEvents,
-                customFestivals: customFestivals
-              }
-            };
-            const jsonStr = JSON.stringify(bundle, null, 2);
-            universalExport(jsonStr, `SovereignNote_${releaseVersion}_offline_release_bundle.json`, 'application/json');
-          }
-        }, idx * 600);
-      });
-    };
-
-    const handleDownloadWorkflowConfig = () => {
-      const yamlContent = `name: SovereignNote v2 (Rust 铁血版) CI/CD
-
-on:
-  push:
-    branches: [ "main" ]
-    tags:
-      - 'v*'
-  pull_request:
-    branches: [ "main" ]
-
-env:
-  CARGO_TERM_COLOR: always
-  NODE_VERSION: '22'
-  RUST_VERSION: 'stable'
-
-jobs:
-  build-frontend:
-    name: Build Frontend (ES5 降级网页壳)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: \${{ env.NODE_VERSION }}
-      - name: Build Frontend
-        run: |
-          npm install
-          npm run build
-      - name: Upload Frontend Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-dist
-          path: dist/
-
-  build-windows:
-    name: Build Windows
-    needs: build-frontend
-    runs-on: windows-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-      - name: Setup Rust Toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: \${{ env.RUST_VERSION }}
-          targets: x86_64-pc-windows-msvc
-      - name: Build Rust Backend
-        run: |
-          cd core-backend
-          cargo build --release --target x86_64-pc-windows-msvc
-        continue-on-error: true
-
-  release-publish:
-    name: Auto Release (资产分发)
-    needs: build-windows
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Publish to GitHub Releases
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            core-backend/target/release/*.exe
-        env:
-          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
-`;
-      universalExport(yamlContent, `SovereignNote_build_workflow.yml`, 'text/yaml');
-    };
-
     return (
       <div className="flex-1 flex flex-col bg-slate-900 border-l border-slate-800 text-slate-200 overflow-hidden w-full select-none">
         {/* HEADER BAR FOR SYSTEM TOOLS */}
@@ -3158,27 +3243,16 @@ jobs:
           <div className="flex items-center space-x-1.5">
             <Rocket className="w-5 h-5 mr-1 text-amber-400 animate-pulse" />
             <span className="text-sm font-bold text-slate-100 font-sans">工具箱系统面板</span>
-            {activeTool === 'releases' && <span className="text-xs text-slate-500 font-mono bg-slate-950/80 px-2 py-0.5 rounded border border-slate-800/60 ml-2 font-medium">/ 存储分发与 CI/CD 自动部署</span>}
             {activeTool === 'backup' && <span className="text-xs text-slate-500 font-mono bg-slate-950/80 px-2 py-0.5 rounded border border-slate-800/60 ml-2 font-medium">/ 状态数据库快照备份</span>}
             {activeTool === 'device' && <span className="text-xs text-slate-500 font-mono bg-slate-950/80 px-2 py-0.5 rounded border border-slate-800/60 ml-2 font-medium">/ 多自适应设备适配器</span>}
           </div>
           
           <div className="flex gap-1 bg-slate-950 p-1 border border-slate-800 rounded-xl shrink-0">
             <button
-              onClick={() => setActiveTool('releases')}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
-                activeTool === 'releases'
-                  ? 'bg-indigo-650 text-white font-extrabold shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              🚀 版本发布
-            </button>
-            <button
               onClick={() => setActiveTool('backup')}
               className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
                 activeTool === 'backup'
-                  ? 'bg-indigo-650 text-white font-extrabold shadow-sm'
+                  ? 'bg-indigo-600 text-white font-extrabold shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -3188,7 +3262,7 @@ jobs:
               onClick={() => setActiveTool('device')}
               className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
                 activeTool === 'device'
-                  ? 'bg-indigo-650 text-white font-extrabold shadow-sm'
+                  ? 'bg-indigo-600 text-white font-extrabold shadow-sm'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -3198,171 +3272,6 @@ jobs:
         </div>
 
         <div className="flex-1 overflow-y-auto w-full pb-16">
-
-          {activeTool === 'releases' && (
-            <div className="p-8 max-w-4xl space-y-6 mx-auto w-full animate-fade-in">
-          {/* TOP CARD DETAILED DESCRIPTION */}
-          <div className="bg-slate-950/40 border border-slate-800 p-6 rounded-2xl space-y-3">
-            <h2 className="text-sm font-bold text-indigo-300 flex items-center gap-2">
-              <span>🚀 基于 GitHub Actions 的全自动资产编译与持续分发</span>
-            </h2>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              您的项目已经深度集成了标准的 GitHub Actions 持续集成与发布流。只要在您关联的 GitHub 仓库中，通过命令行在本地推送一个全新的发布标志标签（格式为 <code>v1.0.0</code>、<code>v1.2.0</code> 等 <code>v*</code> 开头标签），
-              云端的流水线任务便会被<b>自动唤醒</b>。
-            </p>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              工作流会依次调起微软 MSVC 编译器及 Google Android 编译核心，在10分钟以内将<b>前端最新网页壳、Rust 底层编译的可执行文件 (.exe) 和轻量级 Android 安装包 (.apk)</b> 合并汇聚打包，
-              并<b>全自动发布部署到对应的 GitHub Releases 发布页面上</b>。无需任何繁琐的人工介入编译！
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* RELEASE LOGS AND CHANGELOG INPUT */}
-            <div className="space-y-4">
-              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                ✍️ 专属版本及 Changelog 撰写区
-              </h2>
-              <div className="p-5 bg-slate-850/40 rounded-xl border border-slate-800 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] text-slate-500 font-bold uppercase block">1. 目标发布版本号</label>
-                    <input 
-                      type="text" 
-                      value={releaseVersion} 
-                      onChange={(e) => setReleaseVersion(e.target.value)}
-                      placeholder="e.g. v1.1.0"
-                      className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded text-xs text-indigo-300 outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] text-slate-500 font-bold uppercase block">2. 版本标题</label>
-                    <input 
-                      type="text" 
-                      value={releaseTitle} 
-                      onChange={(e) => setReleaseTitle(e.target.value)}
-                      placeholder="e.g. v1.1.0 稳定流畅版"
-                      className="w-full bg-slate-950 border border-slate-800 p-2.5 rounded text-xs text-indigo-300 outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="flex justify-between items-center pb-1">
-                    <label className="text-[10px] text-slate-500 font-bold uppercase block">3. Markdown 格式变更日志 (Changelog)</label>
-                    <button 
-                      onClick={handleScannerGenerateChangelog}
-                      className="text-[9px] bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-md font-bold transition-all"
-                    >
-                      ✨ 自动扫描当前数据并生成日志
-                    </button>
-                  </div>
-                  <textarea 
-                    rows={8}
-                    value={releaseChangelog} 
-                    onChange={(e) => setReleaseChangelog(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 p-3 rounded font-mono text-xs text-slate-300 outline-none focus:border-indigo-500 resize-none"
-                    placeholder="在这里输入发布说明，或者点击上方按钮让系统全自动整理知识库变化统计..."
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* ACTION CENTER - SIMULATOR BUILD & GUIDES */}
-            <div className="space-y-4">
-              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                ⚡️ 手动封存与离线发布终端
-              </h2>
-              <div className="p-5 bg-slate-850/40 rounded-xl border border-slate-800 h-full flex flex-col justify-between space-y-4">
-                <div className="space-y-2">
-                  <p className="text-xs text-slate-400">
-                    您可以在提交 GitHub 自动部署之前，直接在本地对<b>当前的分布式共识物理快照状态、所有多阶标签树和日程</b>进行模拟编译打包：
-                  </p>
-                  
-                  <div className="flex gap-2.5 pt-1">
-                    <button 
-                      onClick={handleSimulateBuild}
-                      disabled={isPackaging}
-                      className={`flex-1 py-3 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md ${
-                        isPackaging 
-                          ? 'bg-slate-800/40 text-slate-500 border border-slate-800 cursor-not-allowed' 
-                          : 'bg-indigo-600 hover:bg-indigo-500 text-white'
-                      }`}
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isPackaging ? 'animate-spin' : ''}`} />
-                      {isPackaging ? "极速编译封包中..." : "一键模拟打包发布并下载"}
-                    </button>
-
-                    <button 
-                      onClick={handleDownloadWorkflowConfig}
-                      className="py-3 px-3 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-705 border border-slate-700 text-slate-300 transition-colors"
-                      title="备份下载 build.yml 部署工作流"
-                    >
-                      下载.github配置
-                    </button>
-                  </div>
-                </div>
-
-                {/* Simulated Packing terminal */}
-                {releaseLog.length > 0 && (
-                  <div className="bg-slate-950 p-4 rounded-lg font-mono text-[10px] text-emerald-400 space-y-1.5 border border-slate-800 max-h-48 overflow-y-auto">
-                    <div className="flex justify-between items-center border-b border-emerald-900/30 pb-1 text-slate-500">
-                      <span>💻 LOCAL BUILDING SHELL ENGINE</span>
-                      <span className="animate-pulse text-emerald-500">● RUNNING</span>
-                    </div>
-                    {releaseLog.map((log, i) => (
-                      <div key={i} className="leading-normal">{log}</div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* COMMAND LINE GUIDE CENTER */}
-          <div className="space-y-4 pt-2">
-            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              💻 命令行一键部署终端推导向导 (PRO)
-            </h2>
-            <div className="bg-slate-950 rounded-2xl border border-slate-850 p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-400 flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-emerald-400" />
-                  <span>您只需在本地终端中简单输入以下 3 行命令，即可全自动触发 Releases 部署：</span>
-                </span>
-                <span className="text-[10px] text-slate-500 font-mono bg-slate-900 px-2 py-1 rounded">分支: main</span>
-              </div>
-
-              <div className="bg-slate-900 p-4 rounded-xl border border-slate-800/80 font-mono text-xs text-indigo-300 leading-6 space-y-1">
-                <div className="text-slate-500"># 第一步：提交当前边缘节点所有的 LWW 改动</div>
-                <div><span className="text-emerald-500">$</span> git add . && git commit -m <span className="text-amber-300">"release: deploy local notes of {releaseVersion}"</span></div>
-                
-                <div className="text-slate-505 mt-2"># 第二步：为您计划打上的发布目标定义一个轻量级安全 Tag 签名</div>
-                <div><span className="text-emerald-500">$</span> git tag -a {releaseVersion} -m <span className="text-amber-300">"SovereignNote {releaseVersion}"</span></div>
-
-                <div className="text-slate-500 mt-2"># 第三步：推送到您 GitHub / GitLab 真实的远程仓库，一秒触发自动化部署</div>
-                <div><span className="text-emerald-500">$</span> git push origin {releaseVersion}</div>
-              </div>
-
-              <div className="flex items-center justify-between pt-1">
-                <div className="text-[10px] text-slate-500">
-                  推送成功后，请直接访问您 GitHub 网页端的 <b>"Releases"</b> 面板，您将看到一排精美的绿色 GitHub Actions 小灯已经点亮！
-                </div>
-                <button 
-                  onClick={() => {
-                    const bash = `git add . && git commit -m "release: deploy local notes of ${releaseVersion}"\ngit tag -a ${releaseVersion} -m "SovereignNote ${releaseVersion}"\ngit push origin ${releaseVersion}`;
-                    navigator.clipboard.writeText(bash);
-                    alert("发布命令套包已经成功复制到您的剪贴板了！");
-                  }}
-                  className="px-4 py-2 bg-slate-900 border border-slate-800 text-xs font-bold rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white transition-all flex items-center gap-1.5"
-                >
-                  <Check className="w-3.5 h-3.5 text-emerald-400" /> 复制发布命令套包
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-          )}
-
           {activeTool === 'backup' && (
             <div className="p-8 max-w-4xl space-y-6 mx-auto w-full animate-fade-in font-sans">
               <div className="bg-slate-950/40 border border-slate-800 p-6 rounded-2xl space-y-3 font-sans">
