@@ -51,6 +51,8 @@ interface MainAreaProps {
   setIndependentTags: (tags: string[]) => void;
   noteTagsMap: Record<string, string[]>;
   setNoteTagsMap: (map: Record<string, string[]>) => void;
+  activeSettingsTab: 'general' | 'appearance' | 'editor' | 'calendar' | 'sync' | 'about';
+  setActiveSettingsTab: (tab: 'general' | 'appearance' | 'editor' | 'calendar' | 'sync' | 'about') => void;
 }
 
 export default function MainArea({
@@ -88,6 +90,7 @@ export default function MainArea({
   setIndependentTags,
   noteTagsMap,
   setNoteTagsMap,
+  activeSettingsTab,
 }: MainAreaProps) {
   const [editorMode, setEditorMode] = useState<'edit' | 'preview' | 'split'>('split');
   const [isToolbarOpen, setIsToolbarOpen] = useState(true);
@@ -102,7 +105,6 @@ export default function MainArea({
   const [lwwTestStatus, setLwwTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [lwwTestResultLogs, setLwwTestResultLogs] = useState<{ timestamp?: string; status?: string; level?: string; message: string; step?: string; layer?: string }[]>([]);
   const [backupStatus, setBackupStatus] = useState<string>('');
-  const [activeSettingsTab, setActiveSettingsTab] = useState<'appearance' | 'editor' | 'calendar' | 'notifications' | 'sync' | 'about' | 'developer'>('appearance');
   const [androidHealthStatus, setAndroidHealthStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [androidHealthLogs, setAndroidHealthLogs] = useState<string[]>([]);
 
@@ -1737,90 +1739,39 @@ export default function MainArea({
   if (navState === 'settings') {
     return (
       <div className="flex-1 flex flex-col bg-slate-900 border-l border-slate-800 text-slate-200 overflow-y-auto w-full">
-        <div className="h-14 px-8 border-b border-slate-800 flex items-center shrink-0 justify-between">
+        <div className="h-14 px-8 border-b border-slate-800 flex items-center shrink-0 justify-between bg-slate-950/20">
           <div className="flex items-center">
             <Settings className="w-5 h-5 mr-3 text-indigo-400 animate-spin-slow" />
-            <h1 className="font-bold text-slate-100 font-sans">系统设置中心</h1>
+            <h1 className="font-bold text-slate-100 font-sans">
+              {activeSettingsTab === 'general' ? '系统环境通用设置' : 
+               activeSettingsTab === 'appearance' ? '界面外观与视觉控制' : 
+               activeSettingsTab === 'editor' ? '编辑器与文字排版微调' : 
+               activeSettingsTab === 'calendar' ? '日历与双向日程模块配置' : 
+               activeSettingsTab === 'sync' ? '同步与备份中心' : 
+               activeSettingsTab === 'about' ? '关于系统与更新日志' : '设置'}
+            </h1>
           </div>
           <div className="text-slate-500 text-xs font-mono">
-            {activeSettingsTab === 'appearance' ? '🎨 界面控制' : activeSettingsTab === 'editor' ? '✍️ 编辑器微调' : activeSettingsTab === 'calendar' ? '📅 日历设置' : activeSettingsTab === 'notifications' ? '🔔 系统通知' : activeSettingsTab === 'sync' ? '☁️ 同步与备份' : activeSettingsTab === 'about' ? 'ℹ️ 关于系统' : '💻 开发者选项'}
+            {activeSettingsTab === 'general' ? '⚙️ General' : 
+             activeSettingsTab === 'appearance' ? '🎨 Appearance' : 
+             activeSettingsTab === 'editor' ? '✍️ Editor' : 
+             activeSettingsTab === 'calendar' ? '📅 Calendar' : 
+             activeSettingsTab === 'sync' ? '☁️ Sync & Backup' : 
+             activeSettingsTab === 'about' ? 'ℹ️ About' : ''}
           </div>
         </div>
 
-        {/* 7个大类切换，页面彻底分流 */}
-        <div className="px-8 py-3 bg-slate-950/40 border-b border-slate-800 flex items-center gap-4 overflow-x-auto shrink-0">
-          <div className="flex flex-wrap gap-1.5 bg-slate-900/40 p-1 rounded-xl border border-slate-850/60 w-full">
-            {[
-              { id: 'appearance', label: '🎨 外观模式', icon: Sliders },
-              { id: 'editor', label: '✍️ 编辑器', icon: Bold },
-              { id: 'calendar', label: '📅 日历设置', icon: CalendarIcon },
-              { id: 'notifications', label: '🔔 系统通知', icon: Info },
-              { id: 'sync', label: '☁️ 同步与备份', icon: Database },
-              { id: 'about', label: 'ℹ️ 关于系统', icon: Info },
-              { id: 'developer', label: '💻 开发者', icon: Terminal },
-            ].map((tab) => {
-              const IconComp = tab.icon;
-              const isSelected = activeSettingsTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setActiveSettingsTab(tab.id as any)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-indigo-600 text-white shadow-sm font-black'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/45'
-                  }`}
-                >
-                  <IconComp className="w-3.5 h-3.5" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="p-8 max-w-2xl pb-16">
-          {activeSettingsTab === 'appearance' && (
+        <div className="p-8 max-w-3xl pb-16 mx-auto w-full">
+          {activeSettingsTab === 'general' && (
             <div className="space-y-8 animate-fade-in">
               {/* MULTI_DEVICE ADAPTIVE & ENV SETTINGS */}
               <div className="space-y-4">
                 <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                  <Sliders className="w-4 h-4 text-emerald-400" /> 外观主题模式与设备适配
+                  <Sliders className="w-4 h-4 text-emerald-400" /> 设备环境自适应配置
                 </h2>
                 <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-6">
-                  {/* Theme Selector Section */}
-                  <div className="space-y-2">
-                    <h3 className="font-semibold text-sm">🔆 系统视觉主题模式</h3>
-                    <p className="text-xs text-slate-500">双轨高对比度防蓝光视觉主题，完美保护低视力年龄群众。夏普R2等液晶屏可显著提升日间可读性。</p>
-                    <div className="grid grid-cols-2 gap-3 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
-                      <button
-                        type="button"
-                        onClick={() => setThemeMode('day')}
-                        className={`py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-                          themeMode === 'day'
-                            ? 'bg-amber-500 text-slate-950 shadow font-extrabold'
-                            : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-300'
-                        }`}
-                      >
-                        ☀️ 极速舒适：日间浅色模式
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setThemeMode('night')}
-                        className={`py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all ${
-                          themeMode === 'night'
-                            ? 'bg-indigo-600 text-slate-100 shadow font-extrabold border border-indigo-500/20'
-                            : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-250'
-                        }`}
-                      >
-                        🌙 昏暗护眼：夜间深色模式
-                      </button>
-                    </div>
-                  </div>
-
                   {/* Hardware / Preset Profiles */}
-                  <div className="space-y-2 pt-4 border-t border-slate-800">
+                  <div className="space-y-2">
                     <h3 className="font-semibold text-sm">🔌 终端真机兼容环境预设</h3>
                     <p className="text-xs text-slate-500">
                       一键配置当前设备的视口大小、字号适配、WebView 内核抗锯齿及点击响应防抖等底层兼容策略。
@@ -1879,6 +1830,159 @@ export default function MainArea({
                       </div>
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* THREE-LAYER PROBE HEALTH TESTER (from developer tab) */}
+              <div className="space-y-4">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 font-mono">
+                  <Terminal className="w-4 h-4 text-indigo-400 animate-pulse" /> 局域网服务接口与端口安全探针
+                </h2>
+                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4 font-sans">
+                  <div>
+                    <h3 className="font-semibold text-sm">双端直连健康探测插口</h3>
+                    <p className="text-xs text-slate-500 mt-1">测试网页端至本地运行的后台服务（默认端口 8787 或 127.0.0.1）的网络连通性与锁互斥保护状态。</p>
+                  </div>
+                  
+                  <div className="flex gap-3">
+                    <button 
+                      type="button"
+                      onClick={async () => {
+                        setAndroidHealthStatus('testing');
+                        setAndroidHealthLogs(prev => [...prev, `[PROBE] 发起健康探测: ${getApiBaseUrl()}/health`]);
+                        try {
+                          const res = await fetch(`${getApiBaseUrl()}/health`, { method: 'GET' });
+                          const data = await res.json();
+                          setAndroidHealthStatus('success');
+                          setAndroidHealthLogs(prev => [...prev, `[PROBE] 连通成功: ${JSON.stringify(data)}`]);
+                        } catch (e: any) {
+                          setAndroidHealthStatus('error');
+                          setAndroidHealthLogs(prev => [...prev, `[PROBE] 连接失败: ${e.message || String(e)}`]);
+                        }
+                      }}
+                      className="px-4 py-2 bg-slate-900 hover:bg-slate-850 border border-slate-850 text-slate-300 font-bold text-xs rounded-lg transition-all"
+                    >
+                      🔌 立即测试 8787 连通性
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => setAndroidHealthLogs([])}
+                      className="px-3 py-2 bg-slate-950 text-xs text-slate-500 hover:text-slate-300 transition-colors rounded-lg"
+                    >
+                      清空探针调试日志
+                    </button>
+                  </div>
+
+                  {androidHealthLogs.length > 0 && (
+                    <div className="p-4 bg-slate-950 rounded-xl border border-slate-900 font-mono text-[11px] text-emerald-400 space-y-1.5 max-h-40 overflow-y-auto">
+                      {androidHealthLogs.map((log, idx) => (
+                        <div key={idx} className="leading-relaxed">{log}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* LOCAL STORAGE CLEAR (from developer tab) */}
+              <div className="space-y-4">
+                <h2 className="text-xs font-bold text-rose-450 uppercase tracking-widest flex items-center gap-2">
+                  <Database className="w-4 h-4 text-rose-400" /> 本地前端缓存清空与重置
+                </h2>
+                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4">
+                  <div>
+                    <h3 className="font-semibold text-sm">彻底清空笔记前端缓存数据库</h3>
+                    <p className="text-xs text-slate-500 mt-1">当前由于应用开启了离线优先架构，笔记内容会直接存储在您的浏览器缓存中。如果您在本地硬盘删除了数据库文件且希望网页数据随之消失，需点击此处清空前端缓存并重载页面。</p>
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button 
+                      onClick={() => {
+                        if (confirm('警告：此操作将彻底删除本浏览器中的所有 SovereignNote 笔记和同步配置，且无法恢复。仅适用于重置或脱离本设备前的数据清理。你确定要销毁前端缓存吗？')) {
+                          safeStorage.removeItem('sovereign_notes');
+                          safeStorage.removeItem('sovereign_events');
+                          window.location.reload();
+                        }
+                      }}
+                      className="px-4 py-2 bg-rose-900/50 hover:bg-rose-800/80 rounded-lg text-xs font-bold transition-all text-white border border-rose-500/30"
+                    >
+                      🗑️ 销毁全部前端缓存数据并重载页面
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* SYSTEM NOTIFICATIONS (integrated from old notifications tab) */}
+              <div className="space-y-4">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Info className="w-4 h-4 text-amber-400" /> 系统推送与多端通知
+                </h2>
+                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4">
+                  <div>
+                    <h3 className="font-semibold text-sm">🔔 多端离线同步提醒机制</h3>
+                    <p className="text-xs text-slate-500 mt-1">设置在发生局域网 LWW 合并、或是 WebDAV 远程中继推送拉取时的系统广播与通知栏挂载提醒。</p>
+                  </div>
+                  
+                  <div className="p-4 bg-slate-950/40 rounded-xl border border-slate-850 text-xs space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="font-bold text-slate-300">定时同步背景静默拉取提醒</span>
+                        <p className="text-[10px] text-slate-500">每当本地内核在后台触发冷拉取合并时，发出系统提示</p>
+                      </div>
+                      <div className="w-9 h-5 bg-indigo-600 rounded-full flex items-center justify-end px-0.5 cursor-pointer">
+                        <div className="w-4 h-4 bg-white rounded-full"></div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between pt-3 border-t border-slate-900">
+                      <div className="space-y-0.5">
+                        <span className="font-bold text-slate-300">LWW 最终写入裁决冲突通知</span>
+                        <p className="text-[10px] text-slate-500">当本地文章和远程时间戳不一致产生 LWW 自动裁决时，推送通知</p>
+                      </div>
+                      <div className="w-9 h-5 bg-indigo-600 rounded-full flex items-center justify-end px-0.5 cursor-pointer">
+                        <div className="w-4 h-4 bg-white rounded-full"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeSettingsTab === 'appearance' && (
+            <div className="space-y-8 animate-fade-in">
+              {/* Theme Selector Section */}
+              <div className="space-y-4">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Sliders className="w-4 h-4 text-indigo-400" /> 系统视觉外观设计
+                </h2>
+                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-6">
+                  <div className="space-y-2">
+                    <h3 className="font-semibold text-sm">🔆 系统视觉主题模式</h3>
+                    <p className="text-xs text-slate-500">双轨高对比度防蓝光视觉主题，完美保护低视力年龄群众。夏普R2等液晶屏可显著提升日间可读性。</p>
+                    <div className="grid grid-cols-2 gap-3 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setThemeMode('day')}
+                        className={`py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                          themeMode === 'day'
+                            ? 'bg-amber-500 text-slate-950 shadow font-extrabold'
+                            : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-300'
+                        }`}
+                      >
+                        ☀️ 极速舒适：日间浅色模式
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setThemeMode('night')}
+                        className={`py-2.5 px-4 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all ${
+                          themeMode === 'night'
+                            ? 'bg-indigo-600 text-slate-100 shadow font-extrabold border border-indigo-500/20'
+                            : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-250'
+                        }`}
+                      >
+                        🌙 昏暗护眼：夜间深色模式
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1993,44 +2097,6 @@ export default function MainArea({
             </div>
           )}
 
-          {activeSettingsTab === 'notifications' && (
-            <div className="space-y-8 animate-fade-in">
-              <div className="space-y-4">
-                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                  <Info className="w-4 h-4 text-amber-400" /> 系统推送与多端通知
-                </h2>
-                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4">
-                  <div>
-                    <h3 className="font-semibold text-sm">🔔 多端离线同步提醒机制</h3>
-                    <p className="text-xs text-slate-500 mt-1">设置在发生局域网 LWW 合并、或是 WebDAV 远程中继推送拉取时的系统广播与通知栏挂载提醒。</p>
-                  </div>
-                  
-                  <div className="p-4 bg-slate-950/40 rounded-xl border border-slate-850 text-xs space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <span className="font-bold text-slate-300">定时同步背景静默拉取提醒</span>
-                        <p className="text-[10px] text-slate-500">每当本地内核在后台触发冷拉取合并时，发出系统提示</p>
-                      </div>
-                      <div className="w-9 h-5 bg-indigo-600 rounded-full flex items-center justify-end px-0.5 cursor-pointer">
-                        <div className="w-4 h-4 bg-white rounded-full"></div>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center justify-between pt-3 border-t border-slate-900">
-                      <div className="space-y-0.5">
-                        <span className="font-bold text-slate-300">LWW 最终写入裁决冲突通知</span>
-                        <p className="text-[10px] text-slate-500">当本地文章和远程时间戳不一致产生 LWW 自动裁决时，推送通知</p>
-                      </div>
-                      <div className="w-9 h-5 bg-indigo-600 rounded-full flex items-center justify-end px-0.5 cursor-pointer">
-                        <div className="w-4 h-4 bg-white rounded-full"></div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
           {activeSettingsTab === 'about' && (
             <div className="space-y-8 animate-fade-in font-sans">
               <div className="bg-slate-950/40 border border-slate-800 p-8 rounded-2xl flex flex-col items-center justify-center text-center space-y-4">
@@ -2049,91 +2115,10 @@ export default function MainArea({
                    ℹ️ 数据主权自治哲学 (Sovereign-by-Design)
                 </h2>
                 <div className="p-6 bg-slate-950/60 rounded-xl border border-slate-800 space-y-4 text-xs text-slate-300 leading-relaxed font-sans">
-                  <p>1. <b>离线高可靠工作</b>：本地基于轻量核心 Rust 开发的后台内核，保障数据秒级读写、SQLite 关系存储与离线抗灾。</p>
+                  <p>1. <b>离线高可靠工作</b>：本地基于轻量核心 Rust 开发 of 后台内核，保障数据秒级读写、SQLite 关系存储与离线抗灾。</p>
                   <p>2. <b>多协议网络中继</b>：开放 WebDAV、FTP、本地局域网点 P2P 等多样化中继同步，不锁死任何单一存储介质。</p>
                   <p>3. <b>最终一致性共识</b>：基于无重叠时间偏序的 <b>LWW-Element-Set (最后写入赢)</b> 冲突判定，实现跨手机、跨桌面、跨云端多源合并。</p>
                   <p className="text-indigo-400 font-bold mt-2">“主权属于用户，离线即是自由。” —— SovereignNote 核心架构专家组</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeSettingsTab === 'developer' && (
-            <div className="space-y-8 animate-fade-in font-sans">
-              {/* LOCAL STORAGE CLEAR */}
-              <div className="space-y-4">
-                <h2 className="text-xs font-bold text-rose-450 uppercase tracking-widest flex items-center gap-2">
-                  <Database className="w-4 h-4 text-rose-400" /> 本地前端缓存清空与重置
-                </h2>
-                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4">
-                  <div>
-                    <h3 className="font-semibold text-sm">彻底清空笔记前端缓存数据库</h3>
-                    <p className="text-xs text-slate-500 mt-1">当前由于应用开启了离线优先架构，笔记内容会直接存储在您的浏览器缓存中。如果您在本地硬盘删除了数据库文件且希望网页数据随之消失，需点击此处清空前端缓存并重载页面。</p>
-                  </div>
-                  <div className="flex gap-3 pt-2">
-                    <button 
-                      onClick={() => {
-                        if (confirm('警告：此操作将彻底删除本浏览器中的所有 SovereignNote 笔记和同步配置，且无法恢复。仅适用于重置或脱离本设备前的数据清理。你确定要销毁前端缓存吗？')) {
-                          safeStorage.removeItem('sovereign_notes');
-                          safeStorage.removeItem('sovereign_events');
-                          window.location.reload();
-                        }
-                      }}
-                      className="px-4 py-2 bg-rose-900/50 hover:bg-rose-800/80 rounded-lg text-xs font-bold transition-all text-white border border-rose-500/30"
-                    >
-                      🗑️ 销毁全部前端缓存数据并重载页面
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* THREE-LAYER PROBE HEALTH TESTER */}
-              <div className="space-y-4">
-                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 font-mono">
-                  <Terminal className="w-4 h-4 text-indigo-400 animate-pulse" /> 局域网服务接口与端口安全探针
-                </h2>
-                <div className="p-5 bg-slate-800/50 rounded-xl border border-slate-800 space-y-4 font-sans">
-                  <div>
-                    <h3 className="font-semibold text-sm">双端直连健康探测插口</h3>
-                    <p className="text-xs text-slate-500 mt-1">测试网页端至本地运行的后台服务（默认端口 8787 或 127.0.0.1）的网络连通性与锁互斥保护状态。</p>
-                  </div>
-                  
-                  <div className="flex gap-3">
-                    <button 
-                      type="button"
-                      onClick={async () => {
-                        setAndroidHealthStatus('testing');
-                        setAndroidHealthLogs(prev => [...prev, `[PROBE] 发起健康探测: ${getApiBaseUrl()}/health`]);
-                        try {
-                          const res = await fetch(`${getApiBaseUrl()}/health`, { method: 'GET' });
-                          const data = await res.json();
-                          setAndroidHealthStatus('success');
-                          setAndroidHealthLogs(prev => [...prev, `[PROBE] 连通成功: ${JSON.stringify(data)}`]);
-                        } catch (e: any) {
-                          setAndroidHealthStatus('error');
-                          setAndroidHealthLogs(prev => [...prev, `[PROBE] 连接失败: ${e.message || String(e)}`]);
-                        }
-                      }}
-                      className="px-4 py-2 bg-slate-900 hover:bg-slate-850 border border-slate-850 text-slate-300 font-bold text-xs rounded-lg transition-all"
-                    >
-                      🔌 立即测试 8787 连通性
-                    </button>
-                    <button 
-                      type="button"
-                      onClick={() => setAndroidHealthLogs([])}
-                      className="px-3 py-2 bg-slate-950 text-xs text-slate-500 hover:text-slate-300 transition-colors rounded-lg"
-                    >
-                      清空探针调试日志
-                    </button>
-                  </div>
-
-                  {androidHealthLogs.length > 0 && (
-                    <div className="p-4 bg-slate-950 rounded-xl border border-slate-900 font-mono text-[11px] text-emerald-400 space-y-1.5 max-h-40 overflow-y-auto">
-                      {androidHealthLogs.map((log, idx) => (
-                        <div key={idx} className="leading-relaxed">{log}</div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
             </div>

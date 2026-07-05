@@ -1,4 +1,4 @@
-import { Search, FileText, Tag, Calendar, Settings, ChevronLeft, Menu, Rocket, Info } from 'lucide-react';
+import { Search, FileText, Tag, Calendar, Settings, ChevronLeft, Menu } from 'lucide-react';
 import { NavState } from '../types';
 
 interface SidebarProps {
@@ -73,14 +73,8 @@ export default function Sidebar({
         <NavItem active={navState === 'notes'} onClick={() => setNavState('notes')} icon={<FileText className="w-4 h-4 text-indigo-400" />} label="笔记" />
         <NavItem active={navState === 'tags'} onClick={() => setNavState('tags')} icon={<Tag className="w-4 h-4 text-pink-400" />} label="标签" />
         <NavItem active={navState === 'calendar'} onClick={() => setNavState('calendar')} icon={<Calendar className="w-4 h-4 text-emerald-400" />} label="日历" />
-        
-        {/* 🛠️ 小工具 Section */}
-        <div className="pt-3 pb-1 px-3">
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">🛠️ 小工具</span>
-        </div>
-        <NavItem active={navState === 'tools'} onClick={() => setNavState('tools')} icon={<Rocket className="w-4 h-4 text-amber-400 animate-pulse" />} label="系统工具箱 (Tools)" />
 
-        {/* 🖥️ 多端环境与自适应 (Moved to here: below Tools and above Settings) */}
+        {/* 🖥️ 多端环境与自适应 */}
         <div className="my-2 px-1">
           <div className="bg-slate-900/50 p-2.5 rounded-xl border border-slate-800/80 space-y-2.5">
             <h3 className="text-[10px] font-bold text-emerald-400 flex items-center gap-1 uppercase tracking-wider">
@@ -183,8 +177,7 @@ export default function Sidebar({
       </nav>
 
       <div className="p-2 border-t border-slate-800 shrink-0 space-y-1">
-        <NavItem active={navState === 'about'} onClick={() => setNavState('about')} icon={<Info className="w-5 h-5 text-sky-400" />} label="关于与版本" />
-        <NavItem active={navState === 'settings'} onClick={() => setNavState('settings')} icon={<Settings className="w-5 h-5" />} label="设置" />
+        <NavItem active={navState === 'settings'} onClick={() => setNavState('settings')} icon={<Settings className="w-5 h-5 text-indigo-400" />} label="系统设置 (Settings)" />
       </div>
     </div>
   );

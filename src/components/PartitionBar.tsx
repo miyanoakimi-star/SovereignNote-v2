@@ -4,7 +4,6 @@ import {
   Plus, ChevronLeft, Trash2, Folder, FolderOpen, Tag, Download, 
   Upload, Hash, Calendar, Sliders, HardDrive, FileText, CheckCircle2, Rocket, Info 
 } from 'lucide-react';
-import { safeStorage } from '../utils/safeStorage';
 
 interface PartitionBarProps {
   navState: NavState;
@@ -33,6 +32,8 @@ interface PartitionBarProps {
   setIndependentTags: (tags: string[]) => void;
   noteTagsMap: Record<string, string[]>;
   setNoteTagsMap: (map: Record<string, string[]>) => void;
+  activeSettingsTab: 'general' | 'appearance' | 'editor' | 'calendar' | 'sync' | 'about';
+  setActiveSettingsTab: (tab: 'general' | 'appearance' | 'editor' | 'calendar' | 'sync' | 'about') => void;
 }
 
 interface TreeNode {
@@ -58,20 +59,15 @@ export default function PartitionBar({
   selectedFolder,
   setSelectedFolder,
   fontSizeLevel,
-  setFontSizeLevel,
   customEvents,
-  handleExportDatabase,
-  handleImportDatabase,
-  handleImportNotesFromFiles,
-  activeTool,
-  setActiveTool,
   independentTags,
   setIndependentTags,
   noteTagsMap,
   setNoteTagsMap,
+  activeSettingsTab,
+  setActiveSettingsTab,
 }: PartitionBarProps) {
   const [collapsedPaths, setCollapsedPaths] = useState<Record<string, boolean>>({});
-  const [dragActive, setDragActive] = useState<boolean>(false);
   const [isBatchMode, setIsBatchMode] = useState<boolean>(false);
   const [selectedNoteIds, setSelectedNoteIds] = useState<Record<string, boolean>>({});
 
@@ -182,32 +178,6 @@ export default function PartitionBar({
     const nextTags = Array.from(new Set([...independentTags, ...cleanList]));
     setIndependentTags(nextTags);
     alert(`成功批量引入并生成了 ${cleanList.length} 个独立的系统嵌套标签！`);
-  };
-
-  // Drag and drop for bulk importing files
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      await handleImportNotesFromFiles(e.dataTransfer.files);
-    }
-  };
-
-  const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      await handleImportNotesFromFiles(e.target.files);
-    }
   };
 
   // Render collapsible nested nodes elegantly (up to 6 depth)
@@ -776,257 +746,44 @@ export default function PartitionBar({
         </div>
       )}
 
-      {/* QUICK DATABASE BACKUP & FONT SIZER CONTROL IN THE PARTITION BAR */}
+      {/* SETTINGS MENU LIST */}
       {navState === 'settings' && (
-        <div className="flex-1 flex flex-col p-4 overflow-y-auto space-y-5">
-          {/* Quick Accessibility Setting */}
-          <div className="p-3 bg-slate-950/30 rounded-xl border border-slate-800 space-y-3">
-            <h3 className="text-xs font-bold text-slate-300">快速字体调节 (支持5级)</h3>
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-slate-500">小</span>
-              <input 
-                type="range" 
-                min="1" 
-                max="5" 
-                value={fontSizeLevel} 
-                onChange={(e) => setFontSizeLevel(parseInt(e.target.value, 10))}
-                className="w-32 accent-indigo-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
-              />
-              <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1">大 <span className="bg-indigo-500/20 text-indigo-300 px-1 rounded-sm scale-90">{fontSizeLevel}级</span></span>
-            </div>
-            <p className="text-[10px] text-slate-500 text-center leading-relaxed">
-              即时控制全局笔记管理列表、文章撰写以及侧边视图字号。限制特大字屏防视疲劳。
-            </p>
+        <div className="flex-1 flex flex-col p-3 overflow-y-auto space-y-1.5 animate-fade-in">
+          <div className="px-2 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-800/40 mb-2">
+            ⚙️ 系统设置分类
           </div>
-
-          {/* Database Backup Tool */}
-          <div className="space-y-2">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1">
-              <HardDrive className="w-3 h-3" /> 数据导入导出 (LWW完整状态)
-            </span>
-            
-            <div className="flex gap-2 shrink-0">
-              <button 
-                onClick={handleExportDatabase}
-                className="flex-1 py-2 px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-lg flex items-center justify-center gap-1 shadow transition-colors"
-                title="导出整个LWW数据库"
-              >
-                <Download className="w-3.5 h-3.5" /> 导出数据库
-              </button>
-              
-              <label 
-                className="flex-1 py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs rounded-lg flex items-center justify-center gap-1 cursor-pointer transition-colors"
-                title="导入LWW数据库"
-              >
-                <Upload className="w-3.5 h-3.5" /> 导入数据库
-                <input 
-                  type="file" 
-                  accept=".json" 
-                  className="hidden" 
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      const text = await file.text();
-                      handleImportDatabase(text);
-                    }
-                  }} 
-                />
-              </label>
-            </div>
-          </div>
-
-          {/* Sync Server URL Tool */}
-          <div className="space-y-2 pt-2">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1">
-              <HardDrive className="w-3 h-3" /> 数据中心同步绑定 (移动端特供)
-            </span>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="例如: http://192.168.1.100:3000"
-                defaultValue={safeStorage.getItem('sovereign_sync_url') || ''}
-                className="flex-1 px-3 py-2 text-xs bg-slate-900 border border-slate-800 text-slate-300 rounded focus:border-indigo-500 outline-none"
-                id="sync-server-input"
-              />
+          {[
+            { id: 'general', label: '通用设置', icon: Sliders, desc: '通知推送、连通健康探针、缓存重置' },
+            { id: 'appearance', label: '外观模式', icon: Sliders, desc: '日夜主题、微调 UI 缩放、真机预设' },
+            { id: 'editor', label: '编辑器与排版', icon: FileText, desc: '字号五级、主权设计排版对齐' },
+            { id: 'calendar', label: '日历模块配置', icon: Calendar, desc: '农历与干支纪年、双向笔记联动' },
+            { id: 'sync', label: '同步与备份中心', icon: HardDrive, desc: 'LWW/WebDAV/FTP/本地备份与日志' },
+            { id: 'about', label: '关于系统哲学', icon: Info, desc: '数据主权自治哲学与对等端规范' },
+          ].map((cat) => {
+            const IconComp = cat.icon;
+            const isSelected = activeSettingsTab === cat.id;
+            return (
               <button
-                onClick={() => {
-                  const val = (document.getElementById('sync-server-input') as HTMLInputElement).value.trim();
-                  if (val) {
-                    safeStorage.setItem('sovereign_sync_url', val);
-                    alert('数据中心同步地址已设定，后续同步将推向此IP源。');
-                  } else {
-                    safeStorage.removeItem('sovereign_sync_url');
-                    alert('已清除同步IP，恢复仅本体闭合环境与相对路由模式。');
-                  }
-                }}
-                className="px-4 bg-slate-800 hover:bg-slate-700 text-indigo-400 font-bold text-[11px] border border-slate-700 rounded transition-colors whitespace-nowrap"
+                key={cat.id}
+                type="button"
+                onClick={() => setActiveSettingsTab(cat.id as any)}
+                className={`w-full text-left p-3 rounded-xl transition-all cursor-pointer flex items-start gap-3 border ${
+                  isSelected
+                    ? 'bg-indigo-650/20 border-indigo-500/30 text-slate-100 shadow'
+                    : 'bg-slate-900/20 border-transparent text-slate-400 hover:bg-slate-900/60 hover:text-slate-200'
+                }`}
               >
-                保存网络配置
+                <IconComp className={`w-4 h-4 shrink-0 mt-0.5 ${isSelected ? 'text-indigo-400' : 'text-slate-500'}`} />
+                <div className="min-w-0 flex-1 font-sans">
+                  <div className={`text-xs font-bold ${isSelected ? 'text-indigo-300 font-black' : 'text-slate-200'}`}>
+                    {cat.id === 'general' ? '⚙️ ' : cat.id === 'appearance' ? '🎨 ' : cat.id === 'editor' ? '✍️ ' : cat.id === 'calendar' ? '📅 ' : cat.id === 'sync' ? '☁️ ' : 'ℹ️ '}
+                    {cat.label}
+                  </div>
+                  <div className="text-[10px] text-slate-500 truncate mt-0.5 font-normal">{cat.desc}</div>
+                </div>
               </button>
-            </div>
-            <p className="text-[10px] text-slate-500 leading-relaxed">
-              安卓端如需热同步笔记至电脑端主机，可输入主机的 IP 与端口，配合局域网穿透完成云端互联。
-            </p>
-          </div>
-
-          {/* Virtual Drag and Drop Multi Folder / Batch File Parser */}
-          <div className="space-y-2">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1">
-               文件夹扫描 & 批量导入 (支持 MD/TXT/HTML/JSON)
-            </span>
-            <div 
-              onDragEnter={handleDrag}
-              onDragOver={handleDrag}
-              onDragLeave={handleDrag}
-              onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
-                dragActive 
-                  ? 'border-indigo-500 bg-indigo-500/10' 
-                  : dragActive === false 
-                    ? 'border-slate-800 hover:border-indigo-500/40 bg-slate-950/20'
-                    : 'border-slate-800'
-              }`}
-            >
-              <Upload className="w-6 h-6 mx-auto mb-2 text-slate-500 opacity-60" />
-              <p className="text-[10px] text-slate-300 font-bold">拖拽本地文件到此处导入</p>
-              <p className="text-[9px] text-slate-500 mt-1">支持拖拉或批量选择多个文件</p>
-              <label className="mt-2.5 inline-block px-3 py-1 bg-slate-800 hover:bg-slate-750 border border-slate-700 text-[10px] font-bold text-indigo-400 rounded cursor-pointer">
-                浏览文件
-                <input 
-                  type="file" 
-                  multiple 
-                  accept=".md,.txt,.html,.json" 
-                  className="hidden" 
-                  onChange={handleFileInput} 
-                />
-              </label>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* GLOBAL DISCOVERY TOOLS BOX IN SIDE BAR */}
-      {navState === 'tools' && (
-        <div className="flex-1 flex flex-col p-4 overflow-y-auto space-y-4 animate-fade-in">
-          {/* Tool Selector Tab Bar */}
-          <div className="grid grid-cols-2 gap-1 bg-slate-950/40 p-1 rounded-xl border border-slate-800/80">
-            <button
-              onClick={() => setActiveTool('backup')}
-              className={`py-2 rounded-lg text-[10px] font-bold text-center transition-all flex flex-col items-center justify-center gap-1 ${
-                activeTool === 'backup'
-                  ? 'bg-indigo-600 text-slate-100 shadow border border-indigo-505 font-extrabold shadow-sm'
-                  : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'
-              }`}
-            >
-              <HardDrive className="w-3.5 h-3.5" />
-              <span>整库备份</span>
-            </button>
-            <button
-              onClick={() => setActiveTool('device')}
-              className={`py-2 rounded-lg text-[10px] font-bold text-center transition-all flex flex-col items-center justify-center gap-1 ${
-                activeTool === 'device'
-                  ? 'bg-indigo-600 text-slate-100 shadow border border-indigo-505 font-extrabold shadow-sm'
-                  : 'text-slate-400 hover:bg-slate-800/40 hover:text-slate-200'
-              }`}
-            >
-              <Sliders className="w-3.5 h-3.5" />
-              <span>多端调试</span>
-            </button>
-          </div>
-
-          <div className="border-t border-slate-800/50 pt-1 shrink-0"></div>
-
-          {/* Render active tool panel inside the sub-sidebar */}
-
-          {activeTool === 'backup' && (
-            <div className="space-y-4 animate-fade-in">
-              <div className="space-y-2">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1">
-                  <HardDrive className="w-3 h-3 text-indigo-400" /> 数据导入导出 (LWW共识)
-                </span>
-                <div className="flex gap-2">
-                  <button 
-                    onClick={handleExportDatabase}
-                    className="flex-1 py-1.5 px-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10px] rounded flex items-center justify-center gap-1 shadow transition-colors"
-                  >
-                    <Download className="w-3 h-3" /> 导出
-                  </button>
-                  <label className="flex-1 py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-[10px] rounded flex items-center justify-center gap-1 cursor-pointer transition-colors">
-                    <Upload className="w-3 h-3" /> 导入
-                    <input 
-                      type="file" 
-                      accept=".json" 
-                      className="hidden" 
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          const text = await file.text();
-                          handleImportDatabase(text);
-                        }
-                      }} 
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div className="space-y-2 pt-1 border-t border-slate-800/40">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-1">
-                  文件夹快速扫描 & 批量导入
-                </span>
-                <div 
-                  onDragEnter={handleDrag}
-                  onDragOver={handleDrag}
-                  onDragLeave={handleDrag}
-                  onDrop={handleDrop}
-                  className={`border border-dashed rounded-xl p-3 text-center cursor-pointer transition-all ${
-                    dragActive 
-                      ? 'border-indigo-500 bg-indigo-500/10' 
-                      : 'border-slate-850 bg-slate-950/20 hover:border-indigo-500/40'
-                  }`}
-                >
-                  <Upload className="w-5 h-5 mx-auto mb-1 text-slate-500 opacity-60" />
-                  <p className="text-[9px] text-slate-300 font-bold">拖拽本地文件到此处导入</p>
-                  <label className="mt-1.5 inline-block px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[8px] font-bold text-indigo-400 rounded cursor-pointer">
-                    浏览文件
-                    <input 
-                      type="file" 
-                      multiple 
-                      accept=".md,.txt,.html,.json" 
-                      className="hidden" 
-                      onChange={(e) => {
-                        if (e.target.files) handleImportNotesFromFiles(e.target.files);
-                      }} 
-                    />
-                  </label>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTool === 'device' && (
-            <div className="space-y-4 animate-fade-in text-slate-300">
-              <div className="p-3 bg-slate-950/40 rounded-xl border border-slate-800 space-y-3">
-                <h3 className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">字号缩放调试</h3>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-slate-500">小</span>
-                  <input 
-                    type="range" 
-                    min="1" 
-                    max="5" 
-                    value={fontSizeLevel} 
-                    onChange={(e) => setFontSizeLevel(parseInt(e.target.value, 10))}
-                    className="w-32 accent-indigo-500 cursor-pointer h-1 bg-slate-800 rounded-lg"
-                  />
-                  <span className="text-[10px] text-indigo-400 font-bold">{fontSizeLevel}级</span>
-                </div>
-              </div>
-              <div className="p-3 bg-slate-950/20 border border-slate-850 rounded-lg text-center">
-                <p className="text-[10px] text-slate-500 leading-relaxed">
-                  多端设备模拟预设已位于左边栏主面板中。您也可以直接在侧边栏底端极速切换分辨率，感受铁血级自适应高分排版对齐。
-                </p>
-              </div>
-            </div>
-          )}
+            );
+          })}
         </div>
       )}
     </div>

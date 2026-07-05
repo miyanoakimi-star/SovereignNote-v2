@@ -100,6 +100,7 @@ export default function App() {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<string>('backup');
+  const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'appearance' | 'editor' | 'calendar' | 'sync' | 'about'>('general');
 
   useEffect(() => {
     const handleTouch = () => {
@@ -647,6 +648,8 @@ export default function App() {
         setIndependentTags={setIndependentTags}
         noteTagsMap={noteTagsMap}
         setNoteTagsMap={setNoteTagsMap}
+        activeSettingsTab={activeSettingsTab}
+        setActiveSettingsTab={setActiveSettingsTab}
       />
 
       <MainArea 
@@ -684,6 +687,8 @@ export default function App() {
         setIndependentTags={setIndependentTags}
         noteTagsMap={noteTagsMap}
         setNoteTagsMap={setNoteTagsMap}
+        activeSettingsTab={activeSettingsTab}
+        setActiveSettingsTab={setActiveSettingsTab}
       />
     </div>
   );
