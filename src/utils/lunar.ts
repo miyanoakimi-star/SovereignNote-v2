@@ -8,6 +8,7 @@ export interface LunarInfo {
   lunarMonthName: string;
   festival: string | null;
   isSolarTerm: boolean;
+  solarTerm?: string | null;
   gzYear?: string;
   gzMonth?: string;
   gzDay?: string;
@@ -51,6 +52,33 @@ const LUNAR_DAY_NAMES = [
   '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十',
   '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十'
 ];
+
+const SOLAR_TERMS = [
+  "小寒", "大寒", "立春", "雨水", "惊蛰", "春分",
+  "清明", "谷雨", "立夏", "小满", "芒种", "夏至",
+  "小暑", "大暑", "立秋", "处暑", "白露", "秋分",
+  "寒露", "霜降", "立冬", "小雪", "大雪", "冬至"
+];
+
+const sTermInfo = [
+  0, 21208, 42467, 63836, 85337, 107014, 128867, 150921, 173149, 195551, 218072, 240693,
+  263343, 285989, 308563, 331033, 353350, 375494, 397447, 419210, 440795, 462224, 483532, 504758
+];
+
+export function getSolarTerm(y: number, m: number, d: number): string | null {
+  const idx1 = 2 * (m - 1);
+  const idx2 = idx1 + 1;
+
+  for (const idx of [idx1, idx2]) {
+    const minutes = 525948.76 * (y - 1900) + sTermInfo[idx];
+    const timeMs = Date.UTC(1900, 0, 6, 2, 5, 0) + minutes * 60000;
+    const localDate = new Date(timeMs + 8 * 3600 * 1000); // Shift to UTC+8
+    if (localDate.getUTCFullYear() === y && (localDate.getUTCMonth() + 1) === m && localDate.getUTCDate() === d) {
+      return SOLAR_TERMS[idx];
+    }
+  }
+  return null;
+}
 
 function lYearDays(y: number): number {
   let i, sum = 348;
@@ -145,22 +173,13 @@ export function getLunarInfo(y: number, m: number, d: number, customFestivals: R
   const kokiYear = `皇纪${y + 660}年`;
   const jpEra = getJapaneseEra(y, m, d);
 
-  if (customFestivals[mmDd]) {
-    return { 
-      lunarDayName: customFestivals[mmDd], 
-      lunarMonthName: '', 
-      festival: customFestivals[mmDd], 
-      isSolarTerm: false,
-      kokiYear,
-      jpEra
-    };
-  }
-
   let l = calculateLunar(y, m, d);
   let lMonthStr = String(l.lunarMonth).padStart(2, '0');
   let lDayStr = String(l.lunarDay).padStart(2, '0');
   let lMmDd = `${lMonthStr}-${lDayStr}`;
-  let festival = SOLAR_FESTIVALS[mmDd] || LUNAR_FESTIVALS[lMmDd] || null;
+
+  // Priority: Custom Festival > Lunar Festival > Eve > Solar Festival
+  let festival = customFestivals[mmDd] || LUNAR_FESTIVALS[lMmDd] || null;
 
   // Handle Eve (除夕)
   if (!festival && l.lunarMonth === 12) {
@@ -168,7 +187,15 @@ export function getLunarInfo(y: number, m: number, d: number, customFestivals: R
     if (l.lunarDay === mDays) festival = "除夕";
   }
 
-  let lunarDayName = festival || LUNAR_DAY_NAMES[l.lunarDay - 1];
+  // Solar festivals
+  if (!festival) {
+    festival = SOLAR_FESTIVALS[mmDd] || null;
+  }
+
+  const solarTerm = getSolarTerm(y, m, d);
+  const isSolarTerm = solarTerm !== null;
+
+  let lunarDayName = LUNAR_DAY_NAMES[l.lunarDay - 1];
   let lunarMonthName = (l.isLeap ? "闰" : "") + LUNAR_MONTH_NAMES[l.lunarMonth - 1] + "月";
   
   // calculate ganzhi
@@ -178,7 +205,8 @@ export function getLunarInfo(y: number, m: number, d: number, customFestivals: R
     lunarDayName,
     lunarMonthName,
     festival,
-    isSolarTerm: false,
+    isSolarTerm,
+    solarTerm,
     gzYear: gzYear + "年",
     kokiYear,
     jpEra

@@ -3611,13 +3611,22 @@ jobs:
                       {day}
                     </span>
                     {/* Lunar and festivals highlights */}
-                    <span className={`text-[9px] font-semibold px-1 py-0.2 rounded-sm select-none ${
-                      lunarInfo.festival 
-                        ? 'bg-emerald-900/20 text-emerald-400 border border-emerald-500/20 font-black' 
-                        : 'text-slate-500'
-                    }`}>
-                      {lunarInfo.isSolarTerm ? '节气' : lunarInfo.festival || lunarInfo.lunarDayName}
-                    </span>
+                    <div className="flex flex-col items-end text-right select-none max-w-[80%]">
+                      {lunarInfo.gzYear && (
+                        <span className="text-[7.5px] text-slate-500/70 font-medium leading-none mb-0.5 tracking-tight scale-90 origin-right whitespace-nowrap">
+                          {lunarInfo.gzYear}
+                        </span>
+                      )}
+                      <span className={`text-[9px] font-semibold px-1 py-0.2 rounded-sm whitespace-nowrap ${
+                        lunarInfo.festival 
+                          ? 'bg-emerald-900/20 text-emerald-400 border border-emerald-500/20 font-black' 
+                          : lunarInfo.isSolarTerm 
+                            ? 'bg-amber-950/20 text-amber-400 border border-amber-500/20 font-semibold' 
+                            : 'text-slate-500'
+                      }`}>
+                        {lunarInfo.festival || lunarInfo.solarTerm || `${lunarInfo.lunarMonthName || ''}${lunarInfo.lunarDayName}`}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Inner events schedules */}
@@ -3685,6 +3694,8 @@ jobs:
                   {selLunar.gzYear && (
                     <span className="bg-indigo-950/40 text-indigo-400 px-2 py-0.5 rounded border border-indigo-900/40">
                       🏮 农历: {selLunar.gzYear} {selLunar.lunarMonthName || ''}{selLunar.lunarDayName}
+                      {selLunar.festival && ` (${selLunar.festival})`}
+                      {selLunar.solarTerm && ` (${selLunar.solarTerm})`}
                     </span>
                   )}
                   {selLunar.jpEra && (
