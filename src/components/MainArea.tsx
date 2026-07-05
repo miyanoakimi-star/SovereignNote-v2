@@ -267,9 +267,65 @@ export default function MainArea({
     };
   }, [activeSettingsTab]);
 
-  // Calendar Year/Month switching state: focusing on May & June 2026
-  const [calYear, setCalYear] = useState<number>(2026);
-  const [calMonth, setCalMonth] = useState<number>(5);
+  // Calendar Year/Month switching state initialized with current date or restored cache
+  const [calYear, setCalYear] = useState<number>(() => {
+    const cachedState = safeStorage.getItem('calendar_state');
+    if (cachedState) {
+      try {
+        const parsed = JSON.parse(cachedState);
+        if (parsed && typeof parsed.year === 'number') {
+          return parsed.year;
+        }
+      } catch (e) {}
+    }
+    const cachedY = safeStorage.getItem('calendar_year');
+    if (cachedY) {
+      const parsed = parseInt(cachedY, 10);
+      if (!isNaN(parsed)) return parsed;
+    }
+    return new Date().getFullYear();
+  });
+
+  const [calMonth, setCalMonth] = useState<number>(() => {
+    const cachedState = safeStorage.getItem('calendar_state');
+    if (cachedState) {
+      try {
+        const parsed = JSON.parse(cachedState);
+        if (parsed && typeof parsed.month === 'number') {
+          return parsed.month;
+        }
+      } catch (e) {}
+    }
+    const cachedM = safeStorage.getItem('calendar_month');
+    if (cachedM) {
+      const parsed = parseInt(cachedM, 10);
+      if (!isNaN(parsed)) return parsed;
+    }
+    return new Date().getMonth() + 1;
+  });
+
+  // Track the first navigation to calendar tab to prevent overwriting cache on initial page mount
+  const isFirstNavRef = useRef(true);
+
+  // Persistence effect for calendar state
+  useEffect(() => {
+    safeStorage.setItem('calendar_year', String(calYear));
+    safeStorage.setItem('calendar_month', String(calMonth));
+    safeStorage.setItem('calendar_state', JSON.stringify({ year: calYear, month: calMonth }));
+  }, [calYear, calMonth]);
+
+  // Handle auto-jumping to today when re-entering the calendar tab
+  useEffect(() => {
+    if (navState === 'calendar') {
+      if (isFirstNavRef.current) {
+        isFirstNavRef.current = false;
+        return;
+      }
+      const today = new Date();
+      setCalYear(today.getFullYear());
+      setCalMonth(today.getMonth() + 1);
+    }
+  }, [navState]);
 
   // Selected date details modal state
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
@@ -3511,27 +3567,39 @@ jobs:
         
         {/* CALENDAR BAR HEADER */}
         <div className="h-14 px-8 border-b border-slate-800 flex items-center justify-between shrink-0 bg-slate-950/40">
-          <div className="flex items-center space-x-1.5 bg-slate-950 border border-slate-800 rounded-lg p-1">
-            <button 
+          <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-1.5 bg-slate-950 border border-slate-800 rounded-lg p-1">
+              <button 
+                onClick={() => {
+                  if (calMonth === 1) { setCalYear(calYear - 1); setCalMonth(12); }
+                  else { setCalMonth(calMonth - 1); }
+                }}
+                className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-sm font-bold text-slate-300 w-24 text-center">
+                {calYear}年 {calMonth}月
+              </span>
+              <button 
+                onClick={() => {
+                  if (calMonth === 12) { setCalYear(calYear + 1); setCalMonth(1); }
+                  else { setCalMonth(calMonth + 1); }
+                }}
+                className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+            <button
               onClick={() => {
-                if (calMonth === 1) { setCalYear(calYear - 1); setCalMonth(12); }
-                else { setCalMonth(calMonth - 1); }
+                const today = new Date();
+                setCalYear(today.getFullYear());
+                setCalMonth(today.getMonth() + 1);
               }}
-              className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200"
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold shadow-md shadow-indigo-950/25 transition-all"
             >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="text-sm font-bold text-slate-300 w-24 text-center">
-              {calYear}年 {calMonth}月
-            </span>
-            <button 
-              onClick={() => {
-                if (calMonth === 12) { setCalYear(calYear + 1); setCalMonth(1); }
-                else { setCalMonth(calMonth + 1); }
-              }}
-              className="p-1.5 hover:bg-slate-800 rounded text-slate-400 hover:text-slate-200"
-            >
-              <ChevronRight className="w-4 h-4" />
+              今天
             </button>
           </div>
 
