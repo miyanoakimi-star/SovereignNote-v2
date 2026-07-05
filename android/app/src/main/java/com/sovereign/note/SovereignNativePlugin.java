@@ -97,10 +97,29 @@ public class SovereignNativePlugin extends Plugin {
     @PluginMethod
     public void getStoragePathInfo(PluginCall call) {
         try {
-            File baseDir = getSovereignDirectory("");
+            File extDir = new File(Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_DOWNLOADS), "SovereignNote");
+            
+            File intDir = getContext().getExternalFilesDir(null);
+            if (intDir == null) {
+                intDir = getContext().getFilesDir();
+            }
+            intDir = new File(intDir, "SovereignNote");
+
+            File activeDir = getSovereignDirectory("");
+            boolean isWritable = activeDir.getAbsolutePath().equals(extDir.getAbsolutePath());
+
+            File backupDir = getSovereignDirectory("backup");
+            File[] backupFiles = backupDir.listFiles();
+            int backupCount = backupFiles != null ? backupFiles.length : 0;
+
             JSObject ret = new JSObject();
-            ret.put("basePath", baseDir.getAbsolutePath());
+            ret.put("basePath", activeDir.getAbsolutePath());
+            ret.put("externalSovereignDir", extDir.getAbsolutePath());
+            ret.put("internalSovereignDir", intDir.getAbsolutePath());
             ret.put("storageType", getStorageTypeString());
+            ret.put("isWritable", isWritable || activeDir.canWrite());
+            ret.put("backupCount", backupCount);
             
             // Return folder mappings
             JSObject folders = new JSObject();
