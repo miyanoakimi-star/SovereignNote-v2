@@ -10,6 +10,7 @@ interface MindmapProps {
 
 export default function Mindmap({ data, onChange, title: activeNoteTitle }: MindmapProps) {
   const [nodes, setNodes] = useState<MindmapNode[]>([]);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
   useEffect(() => {
@@ -375,9 +376,11 @@ export default function Mindmap({ data, onChange, title: activeNoteTitle }: Mind
       
       if (parsed && parsed.length > 0) {
         setNodes(parsed);
-        alert(`成功导入 ${parsed.length} 个脑图节点！`);
+        setImportNotice(`已导入 ${parsed.length} 个导图节点`);
+        setTimeout(() => setImportNotice(null), 2500);
       } else {
-        alert("导入脑图失败：格式无法识别，支持 Markdown (.md/.txt) bullet大纲列表 / FreeMind (.mm) 节点脑图 / JSON 数据。");
+        setImportNotice('格式无法识别，支持 .md/.txt/.mm/.json');
+        setTimeout(() => setImportNotice(null), 3000);
       }
     };
     reader.readAsText(file);
@@ -385,11 +388,16 @@ export default function Mindmap({ data, onChange, title: activeNoteTitle }: Mind
   };
 
   return (
-    <div className="flex-1 w-full h-full relative bg-slate-950 overflow-auto" ref={containerRef}>
+    <div className="flex-1 w-full h-full relative sn-canvas overflow-auto" ref={containerRef}>
       {/* Mindmap Toolbar floating in the workspace */}
-      <div className="absolute top-4 right-4 z-20 flex flex-wrap items-center gap-2 bg-slate-900/90 backdrop-blur-sm p-2 rounded-xl border border-slate-800 shadow-2xl pointer-events-auto">
-        <span className="text-[10px] text-indigo-400 font-extrabold uppercase px-2 py-1 bg-indigo-950/40 rounded border border-indigo-900/20">
-          🧠 脑图工具箱
+      <div className="absolute top-4 right-4 z-20 flex flex-wrap items-center gap-2 sn-elevated p-2 rounded-xl border sn-border-strong shadow-lg pointer-events-auto">
+        {importNotice && (
+          <span className="text-[11px] font-medium text-indigo-500 px-2">
+            {importNotice}
+          </span>
+        )}
+        <span className="text-[11px] text-indigo-500 font-bold px-2 py-1">
+          导图工具
         </span>
         
         {/* EXPORT DROP-DOWN */}
@@ -398,27 +406,27 @@ export default function Mindmap({ data, onChange, title: activeNoteTitle }: Mind
             <FileDown className="w-3.5 h-3.5" /> 导出脑图
           </button>
           
-          <div className="absolute right-0 mt-1 hidden group-hover/export:block w-48 bg-slate-950 border border-slate-800 rounded-lg shadow-xl p-1 z-30 space-y-0.5">
-            <button onClick={exportXLS} className="w-full text-left py-1.5 px-2.5 rounded text-[10px] hover:bg-indigo-600 hover:text-white text-slate-300 font-medium transition-colors">
+          <div className="absolute right-0 mt-1 hidden group-hover/export:block w-48 sn-elevated border sn-border-strong rounded-lg shadow-xl p-1 z-30 space-y-0.5">
+            <button onClick={exportXLS} className="w-full text-left py-1.5 px-2.5 rounded text-xs hover:bg-indigo-600 hover:text-white sn-text font-medium transition-colors">
               Excel 数据表格 (.xls)
             </button>
-            <button onClick={exportCSV} className="w-full text-left py-1.5 px-2.5 rounded text-[10px] hover:bg-indigo-600 hover:text-white text-slate-300 font-medium transition-colors">
+            <button onClick={exportCSV} className="w-full text-left py-1.5 px-2.5 rounded text-xs hover:bg-indigo-600 hover:text-white sn-text font-medium transition-colors">
               CSV 纯文本表格 (.csv)
             </button>
-            <button onClick={exportFreeMind} className="w-full text-left py-1.5 px-2.5 rounded text-[10px] hover:bg-indigo-600 hover:text-white text-slate-300 font-medium transition-colors">
+            <button onClick={exportFreeMind} className="w-full text-left py-1.5 px-2.5 rounded text-xs hover:bg-indigo-600 hover:text-white sn-text font-medium transition-colors">
               FreeMind 脑图 (.mm)
             </button>
-            <button onClick={exportMarkdown} className="w-full text-left py-1.5 px-2.5 rounded text-[10px] hover:bg-indigo-600 hover:text-white text-slate-300 font-medium transition-colors">
+            <button onClick={exportMarkdown} className="w-full text-left py-1.5 px-2.5 rounded text-xs hover:bg-indigo-600 hover:text-white sn-text font-medium transition-colors">
               Markdown 大纲列表 (.md)
             </button>
-            <button onClick={exportJSON} className="w-full text-left py-1.5 px-2.5 rounded text-[10px] hover:bg-indigo-600 hover:text-white text-slate-300 font-medium transition-colors">
+            <button onClick={exportJSON} className="w-full text-left py-1.5 px-2.5 rounded text-xs hover:bg-indigo-600 hover:text-white sn-text font-medium transition-colors">
               数据流 JSON (.json)
             </button>
           </div>
         </div>
 
         {/* IMPORT TRIGGER BUTTON */}
-        <label className="flex items-center gap-1 text-[11px] font-bold py-1 px-2.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer border border-slate-700">
+        <label className="flex items-center gap-1 text-[11px] font-bold py-1 px-2.5 rounded sn-surface hover:border-indigo-500 sn-text transition-colors cursor-pointer border sn-border-strong">
           <Upload className="w-3.5 h-3.5" /> 导入脑图
           <input 
             type="file" 
@@ -526,7 +534,7 @@ function DraggableNode({ node, nodes, onUpdate, onAdd, onRemove, onDragEnd, onRe
 
   return (
     <div 
-      className={`absolute pointer-events-auto flex flex-col items-center justify-center transform -translate-x-1/2 -translate-y-1/2 rounded-full border shadow-lg transition-colors group ${isRoot ? 'bg-indigo-600 border-indigo-400 text-white z-10 p-3' : 'bg-slate-800 border-slate-600 text-slate-200 z-0 p-2'}`}
+      className={`absolute pointer-events-auto flex flex-col items-center justify-center transform -translate-x-1/2 -translate-y-1/2 rounded-full border shadow-md transition-colors group ${isRoot ? 'bg-indigo-600 border-indigo-400 text-white z-10 p-3' : 'sn-elevated sn-border-strong sn-text z-0 p-2'}`}
       style={{ left: pos.x, top: pos.y, cursor: isDragging ? 'grabbing' : 'grab' }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -537,23 +545,23 @@ function DraggableNode({ node, nodes, onUpdate, onAdd, onRemove, onDragEnd, onRe
         <button onClick={() => onRemove(node.id)} className="absolute -top-3 -right-3 w-5 h-5 bg-rose-600 text-white rounded-full text-xs font-bold leading-none flex items-center justify-center hover:bg-rose-500 scale-0 group-hover:scale-100 transition-transform">×</button>
       )}
       
-      {isRoot && <button onClick={() => onAdd(node.id, 'left')} className="absolute -left-6 bg-indigo-500 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold hover:bg-indigo-400">+</button>}
+      {isRoot && <button onClick={() => onAdd(node.id, 'left')} className="absolute -left-6 bg-indigo-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold hover:bg-indigo-400">+</button>}
       
       <input 
         value={node.label}
         onChange={e => onUpdate(node.id, e.target.value)}
-        className={`bg-transparent outline-none border-none text-center font-bold ${isRoot ? 'w-24 text-sm' : 'w-20 text-xs'}`}
+        className={`bg-transparent outline-none border-none text-center font-bold ${isRoot ? 'w-24 text-sm text-white' : 'w-20 text-xs sn-text'}`}
       />
       
       {isRoot ? (
-        <button onClick={() => onAdd(node.id, 'right')} className="absolute -right-6 bg-indigo-500 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold hover:bg-indigo-400">+</button>
+        <button onClick={() => onAdd(node.id, 'right')} className="absolute -right-6 bg-indigo-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold hover:bg-indigo-400">+</button>
       ) : (
-        <button onClick={() => onAdd(node.id, node.direction)} className={`absolute ${node.direction === 'right' ? '-right-6' : '-left-6'} bg-slate-700 border border-slate-600 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold hover:bg-slate-600`}>+</button>
+        <button onClick={() => onAdd(node.id, node.direction)} className={`absolute ${node.direction === 'right' ? '-right-6' : '-left-6'} sn-surface border sn-border-strong sn-text rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold hover:border-indigo-500`}>+</button>
       )}
 
       {/* Mini Controls Bar visible on Hover */}
       {!isRoot && (
-        <div className="absolute top-full mt-1.5 hidden group-hover:flex items-center gap-1 bg-slate-900 border border-slate-700 rounded-lg p-1 shadow-xl z-30 pointer-events-auto">
+        <div className="absolute top-full mt-1.5 hidden group-hover:flex items-center gap-1 sn-elevated border sn-border-strong rounded-lg p-1 shadow-xl z-30 pointer-events-auto">
           {/* Outdent Button */}
           {hasGrandparent && (
             <button 
@@ -561,7 +569,7 @@ function DraggableNode({ node, nodes, onUpdate, onAdd, onRemove, onDragEnd, onRe
                 e.stopPropagation();
                 onReparent(node.id, grandparent.id);
               }}
-              className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-[9px] font-bold text-indigo-400 border border-slate-700/50 cursor-pointer"
+              className="px-1.5 py-0.5 sn-surface hover:border-indigo-500 rounded text-[9px] font-bold text-indigo-500 border sn-border cursor-pointer"
               title="向上升级 (设为祖父的子节点)"
             >
               ← 升级
@@ -574,7 +582,7 @@ function DraggableNode({ node, nodes, onUpdate, onAdd, onRemove, onDragEnd, onRe
                 e.stopPropagation();
                 onReparent(node.id, sibling.id);
               }}
-              className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 rounded text-[9px] font-bold text-emerald-400 border border-slate-700/50 cursor-pointer"
+              className="px-1.5 py-0.5 sn-surface hover:border-emerald-500 rounded text-[9px] font-bold text-emerald-500 border sn-border cursor-pointer"
               title="向下降级 (设为兄弟节点的子节点)"
             >
               → 降级
@@ -590,7 +598,7 @@ function DraggableNode({ node, nodes, onUpdate, onAdd, onRemove, onDragEnd, onRe
             }}
             onClick={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
-            className="bg-slate-850 border border-slate-700 text-[9px] text-slate-300 rounded font-semibold outline-none py-0.5 px-1 max-w-[80px]"
+            className="sn-input border text-[9px] sn-text rounded font-semibold outline-none py-0.5 px-1 max-w-[80px]"
             title="选择任意新父节点"
           >
             <option value="" disabled>设为子/孙节点...</option>

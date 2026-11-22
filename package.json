@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev:ui": "vite",
-    "dev": "npm run build && cd core-backend && cargo run",
+    "dev": "tsx server.ts",
+    "start": "NODE_ENV=production tsx server.ts",
+    "dev:core": "npm run build && cd core-backend && cargo run",
     "build": "tsc -b && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
@@ -13,9 +15,13 @@
   "dependencies": {
     "@capacitor/android": "^3.9.0",
     "@capacitor/core": "^3.9.0",
+    "@google/genai": "^3.6.1",
+    "@types/express": "^5.0.6",
+    "express": "^5.3.0",
     "lucide-react": "^0.438.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
     "@capacitor/cli": "^3.9.0",

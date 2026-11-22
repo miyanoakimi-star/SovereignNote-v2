@@ -1,0 +1,8 @@
+{
+  "name": "SovereignNote",
+  "description": "离线优先、数据主权自治的智能笔记、思维导图与多端协同工作台",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { SovereignNative } from './plugins/sovereignNative';
-import { NavState, Note, CalendarEvent } from './types';
+import { NavState, Note, CalendarEvent, SettingsTab } from './types';
 import Sidebar from './components/Sidebar';
 import PartitionBar from './components/PartitionBar';
 import MainArea from './components/MainArea';
 import { getLocalNotes, saveLocalNotes, syncWithBackend, getApiBaseUrl, addSyncLog } from './lib/api';
 import { safeStorage } from './utils/safeStorage';
+import { emitToast } from './components/UiFeedback';
 
 function generateUUID(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -100,7 +101,7 @@ export default function App() {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<string>('backup');
-  const [activeSettingsTab, setActiveSettingsTab] = useState<'general' | 'appearance' | 'editor' | 'calendar' | 'sync' | 'about'>('general');
+  const [activeSettingsTab, setActiveSettingsTab] = useState<SettingsTab>('general');
 
   useEffect(() => {
     const handleTouch = () => {
@@ -202,7 +203,7 @@ export default function App() {
           formattedContent += `*分享自 Android 系统设备 (接收于 ${new Date().toLocaleString()})*\n`;
 
           handleCreateNote(title, formattedContent, '系统分享');
-          alert(`📥 成功通过 Android 分享创建一篇新备忘：\n「${title}」`);
+          emitToast('success', `成功通过系统分享创建笔记「${title}」`);
         }
       } catch (err) {
         console.warn('Failed to fetch pending share intent:', err);
@@ -252,9 +253,15 @@ export default function App() {
 
   useEffect(() => {
     if (themeMode === 'day') {
+      document.documentElement.classList.add('theme-light');
+      document.documentElement.classList.remove('dark');
       document.body.classList.add('theme-light');
+      document.body.classList.remove('dark');
     } else {
+      document.documentElement.classList.remove('theme-light');
+      document.documentElement.classList.add('dark');
       document.body.classList.remove('theme-light');
+      document.body.classList.add('dark');
     }
     safeStorage.setItem('sovereign_theme', themeMode);
   }, [themeMode]);
@@ -446,7 +453,6 @@ export default function App() {
   }
 
   function handleDeleteNote(id: string) {
-    if (!window.confirm('确定要删除此笔记吗？')) return;
     const now = Date.now();
     const updated = notes.map(n => {
       if (n.id === id) return { ...n, deleted: true, updated_at: now };
@@ -474,7 +480,7 @@ export default function App() {
         window.location.href = `${getApiBaseUrl()}/backup/download/${data.file}`;
       }
     } catch (e) {
-      alert("备份导出失败: " + String(e));
+      emitToast('error', `备份导出失败: ${String(e)}`);
     }
   }
 
@@ -529,12 +535,12 @@ export default function App() {
         if (parsedObj.noteTagsMap && typeof parsedObj.noteTagsMap === 'object') {
           setNoteTagsMap(parsedObj.noteTagsMap);
         }
-        alert("数据库同步备份导入成功！");
+        emitToast('success', '数据库同步备份导入成功');
       } else {
-        alert("导入失败：JSON 格式不兼容，缺少核心 notes 数据库。");
+        emitToast('error', '导入失败：JSON 格式不兼容，缺少核心 notes 数据库');
       }
     } catch (e: any) {
-      alert("导入解析错误: " + e.message);
+      emitToast('error', `导入解析错误: ${e.message}`);
     }
   }
 
@@ -557,7 +563,7 @@ export default function App() {
             const merged = [...parsed, ...notes];
             setNotes(merged);
             saveLocalNotes(merged);
-            alert(`成功导入 ${parsed.length} 条笔记！`);
+            emitToast('success', `成功导入 ${parsed.length} 条笔记`);
             continue;
           } else if (parsed.title && parsed.content) {
             title = parsed.title;
@@ -592,12 +598,12 @@ export default function App() {
       setNotes(updated);
       saveLocalNotes(updated);
       setActiveNoteId(newNotes[0].id);
-      alert(`已成功批量导入 ${newNotes.length} 条笔记！`);
+      emitToast('success', `已成功批量导入 ${newNotes.length} 条笔记`);
     }
   };
 
   return (
-    <div className="h-screen flex bg-slate-900 text-slate-100 font-sans selection:bg-indigo-500 selection:text-white overflow-hidden">
+    <div className="h-screen flex sn-canvas sn-text font-sans selection:bg-indigo-500 selection:text-white overflow-hidden">
       <Sidebar 
         navState={navState}
         setNavState={(state) => {
@@ -689,6 +695,8 @@ export default function App() {
         setNoteTagsMap={setNoteTagsMap}
         activeSettingsTab={activeSettingsTab}
         setActiveSettingsTab={setActiveSettingsTab}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
       />
     </div>
   );

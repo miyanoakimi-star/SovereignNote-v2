@@ -27,6 +27,7 @@ export default function Whiteboard({ paths, onChange }: WhiteboardProps) {
   const [color, setColor] = useState('#818cf8'); // indigo-400
   const lineWidth = 3;
   const [currentStroke, setCurrentStroke] = useState<StrokePath | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
@@ -85,7 +86,13 @@ export default function Whiteboard({ paths, onChange }: WhiteboardProps) {
 
     const drawPath = (stroke: StrokePath) => {
       ctx.beginPath();
-      ctx.strokeStyle = stroke.type === 'eraser' ? '#020617' : stroke.color; // eraser uses app background color
+      if (stroke.type === 'eraser') {
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.strokeStyle = 'rgba(0,0,0,1)';
+      } else {
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = stroke.color;
+      }
       ctx.lineWidth = stroke.type === 'eraser' ? stroke.lineWidth * 3 : stroke.lineWidth;
 
       if (stroke.type === 'pen' || stroke.type === 'eraser') {
@@ -119,6 +126,7 @@ export default function Whiteboard({ paths, onChange }: WhiteboardProps) {
 
     localPaths.forEach(drawPath);
     if (currentStroke) drawPath(currentStroke);
+    ctx.globalCompositeOperation = 'source-over';
   };
 
   useEffect(() => {
@@ -242,28 +250,27 @@ export default function Whiteboard({ paths, onChange }: WhiteboardProps) {
   }, [historyPointer, canvasHistory, localPaths, onChange]);
 
   const clear = () => {
-    if (confirm('确定要清空画布吗？')) {
-      const emptyPaths: StrokePath[] = [];
-      setLocalPaths(emptyPaths);
+    const emptyPaths: StrokePath[] = [];
+    setLocalPaths(emptyPaths);
 
-      const nextHistory = canvasHistory.slice(0, historyPointer + 1);
-      const finalHistory = [...nextHistory, emptyPaths];
-      setCanvasHistory(finalHistory);
-      setHistoryPointer(finalHistory.length - 1);
+    const nextHistory = canvasHistory.slice(0, historyPointer + 1);
+    const finalHistory = [...nextHistory, emptyPaths];
+    setCanvasHistory(finalHistory);
+    setHistoryPointer(finalHistory.length - 1);
 
-      onChange(emptyPaths);
-    }
+    onChange(emptyPaths);
+    setConfirmClear(false);
   };
 
   return (
     <div className="flex flex-col h-full w-full">
-      <div className="flex items-center justify-between bg-slate-900 border-b border-slate-800 p-2 shrink-0">
+      <div className="flex items-center justify-between sn-panel border-b sn-border p-2 shrink-0">
         <div className="flex flex-wrap gap-1 md:gap-2">
           {['pen', 'line', 'rect', 'circle', 'eraser'].map(t => (
             <button
               key={t}
               onClick={() => setTool(t as StrokeType)}
-              className={`px-3 py-1 rounded text-xs font-bold transition-colors ${tool === t ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+              className={`px-3 py-1 rounded text-xs font-bold transition-colors ${tool === t ? 'bg-indigo-600 text-white' : 'sn-surface sn-text hover:border-indigo-500 border sn-border'}`}
             >
               {t === 'pen' ? '✏️ 画笔' : t === 'line' ? '📏 直线' : t === 'eraser' ? '🧽 橡皮' : t === 'rect' ? '⬛️ 矩形' : '⭕️ 圆形'}
             </button>
@@ -278,12 +285,19 @@ export default function Whiteboard({ paths, onChange }: WhiteboardProps) {
           )}
         </div>
         <div className="flex gap-2">
-          <button onClick={undo} className="px-3 py-1 bg-slate-800 text-slate-300 hover:bg-slate-700 rounded text-xs font-bold">撤销</button>
-          <button onClick={clear} className="px-3 py-1 bg-rose-900/30 text-rose-400 hover:bg-rose-800/50 border border-rose-800/50 rounded text-xs font-bold">清空</button>
+          <button onClick={undo} className="px-3 py-1 sn-surface sn-text border sn-border hover:border-indigo-500 rounded text-xs font-bold">撤销</button>
+          {!confirmClear ? (
+            <button onClick={() => setConfirmClear(true)} className="px-3 py-1 bg-rose-500/15 text-rose-500 hover:bg-rose-600 hover:text-white border border-rose-500/30 rounded text-xs font-bold">清空</button>
+          ) : (
+            <div className="flex items-center gap-1">
+              <button onClick={clear} className="px-2.5 py-1 bg-rose-600 text-white rounded text-xs font-bold">确认清空</button>
+              <button onClick={() => setConfirmClear(false)} className="px-2 py-1 sn-surface sn-muted rounded text-xs">取消</button>
+            </div>
+          )}
         </div>
       </div>
       
-      <div ref={containerRef} className="flex-1 bg-slate-950 relative overflow-hidden touch-none">
+      <div ref={containerRef} className="flex-1 sn-canvas relative overflow-hidden touch-none">
         <canvas
           ref={canvasRef}
           onMouseDown={handleStart}

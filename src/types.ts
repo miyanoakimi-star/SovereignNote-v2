@@ -1,8 +1,10 @@
+export type NoteType = 'markdown' | 'mindmap' | 'whiteboard';
+
 export interface Note {
   id: string;
   title: string;
   content: string;
-  type?: 'markdown' | 'mindmap' | 'whiteboard';
+  type?: NoteType;
   created_at: number;
   updated_at: number;
   deleted: boolean;
@@ -33,4 +35,71 @@ export interface CalendarEvent {
   isCustomFestival?: boolean;
 }
 
-export type NavState = 'notes' | 'tags' | 'calendar' | 'settings' | 'releases' | 'tools' | 'about';
+export interface WebDavConfig {
+  url: string;
+  port: string;
+  path: string;
+  username: string;
+  password: string;
+}
+
+export interface FtpConfig {
+  host: string;
+  port?: string | number;
+  user: string;
+  pass: string;
+  path: string;
+  secure: boolean;
+}
+
+export interface SyncLogEntry {
+  id?: number;
+  timestamp: string;
+  level: string;
+  message: string;
+  session_id?: string;
+  protocol?: string;
+  step?: string;
+}
+
+export interface ProbeLogItem {
+  timestamp?: string;
+  status?: string;
+  level?: string;
+  message: string;
+  step?: string;
+  layer?: string;
+}
+
+export type NavState = 'notes' | 'tags' | 'calendar' | 'settings' | 'about' | 'tools';
+
+export type SettingsTab = 'general' | 'appearance' | 'editor' | 'calendar' | 'ai' | 'sync' | 'about';
+
+export type AiProtocol = 'server-gemini' | 'openai' | 'gemini-custom';
+
+export interface AiModelPreset {
+  id: string;
+  name: string;
+  protocol: AiProtocol;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  systemPrompt?: string;
+  directBrowser?: boolean;
+}
+
+export interface AiChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+}
+
+export interface AiExtractedSuggestions {
+  tags: string[];
+  events: Array<{
+    title: string;
+    date: string;
+    reason?: string;
+  }>;
+}
