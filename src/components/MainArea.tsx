@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Info } from 'lucide-react';
 import {
+  AiCustomCommand,
   AiModelPreset,
   CalendarEvent,
   FtpConfig,
@@ -14,8 +15,11 @@ import { parseMarkdown } from '../utils/markdown';
 import {
   loadActivePresetId,
   loadAiPresets,
+  loadCustomAiCommands,
+  resetCustomAiCommands,
   saveActivePresetId,
   saveAiPresets,
+  saveCustomAiCommands,
 } from '../lib/ai';
 import NoteEditor from './NoteEditor';
 import AiAssistantDrawer from './AiAssistantDrawer';
@@ -153,6 +157,11 @@ export default function MainArea({
   );
   const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
 
+  // Shared custom AI commands state (synced across NoteEditor, AiAssistantDrawer, SettingsView)
+  const [customCommands, setCustomCommands] = useState<AiCustomCommand[]>(() =>
+    loadCustomAiCommands()
+  );
+
   const activePreset = presets.find((p) => p.id === activePresetId) || presets[0];
 
   const handleSelectPreset = (id: string) => {
@@ -169,6 +178,22 @@ export default function MainArea({
     });
   };
 
+  const handleBatchAddPresets = (newPresets: AiModelPreset[]) => {
+    if (newPresets.length === 0) return;
+    setPresets((prev) => {
+      const existingKeys = new Set(
+        prev.map((p) => `${p.protocol}::${p.baseUrl.trim()}::${p.model.trim()}`)
+      );
+      const toAdd = newPresets.filter(
+        (p) => !existingKeys.has(`${p.protocol}::${p.baseUrl.trim()}::${p.model.trim()}`)
+      );
+      if (toAdd.length === 0) return prev;
+      const next = [...prev, ...toAdd];
+      saveAiPresets(next);
+      return next;
+    });
+  };
+
   const handleDeletePreset = (id: string) => {
     setPresets((prev) => {
       if (prev.length <= 1) return prev;
@@ -179,6 +204,28 @@ export default function MainArea({
       }
       return next;
     });
+  };
+
+  const handleUpsertCustomCommand = (cmd: AiCustomCommand) => {
+    setCustomCommands((prev) => {
+      const exists = prev.some((c) => c.id === cmd.id);
+      const next = exists ? prev.map((c) => (c.id === cmd.id ? cmd : c)) : [...prev, cmd];
+      saveCustomAiCommands(next);
+      return next;
+    });
+  };
+
+  const handleDeleteCustomCommand = (id: string) => {
+    setCustomCommands((prev) => {
+      const next = prev.filter((c) => c.id !== id);
+      saveCustomAiCommands(next);
+      return next;
+    });
+  };
+
+  const handleResetCustomCommands = () => {
+    const defaults = resetCustomAiCommands();
+    setCustomCommands(defaults);
   };
 
   const handleInsertIntoActiveNote = (text: string) => {
@@ -270,7 +317,12 @@ export default function MainArea({
         activePresetId={activePresetId}
         onSelectPreset={handleSelectPreset}
         onUpsertPreset={handleUpsertPreset}
+        onBatchAddPresets={handleBatchAddPresets}
         onDeletePreset={handleDeletePreset}
+        customCommands={customCommands}
+        onUpsertCustomCommand={handleUpsertCustomCommand}
+        onDeleteCustomCommand={handleDeleteCustomCommand}
+        onResetCustomCommands={handleResetCustomCommands}
         notify={notify}
         releaseVersion={RELEASE_VERSION}
       />
@@ -333,6 +385,9 @@ export default function MainArea({
           activePreset={activePreset}
           isAiDrawerOpen={isAiDrawerOpen}
           setIsAiDrawerOpen={setIsAiDrawerOpen}
+          customCommands={customCommands}
+          onUpsertCustomCommand={handleUpsertCustomCommand}
+          onDeleteCustomCommand={handleDeleteCustomCommand}
           notify={notify}
         />
         <AiAssistantDrawer
@@ -356,6 +411,9 @@ export default function MainArea({
           setIndependentTags={setIndependentTags}
           customEvents={customEvents}
           setCustomEvents={setCustomEvents}
+          customCommands={customCommands}
+          onUpsertCustomCommand={handleUpsertCustomCommand}
+          onDeleteCustomCommand={handleDeleteCustomCommand}
           notify={notify}
         />
       </div>

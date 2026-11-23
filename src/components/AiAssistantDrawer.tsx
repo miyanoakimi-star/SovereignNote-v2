@@ -4,6 +4,7 @@ import {
   Calendar as CalendarIcon,
   Check,
   Copy,
+  Edit3,
   GitBranch,
   Loader2,
   Plus,
@@ -16,6 +17,7 @@ import {
 } from 'lucide-react';
 import {
   AiChatMessage,
+  AiCustomCommand,
   AiExtractedSuggestions,
   AiModelPreset,
   CalendarEvent,
@@ -46,6 +48,9 @@ interface AiAssistantDrawerProps {
   setIndependentTags: (tags: string[]) => void;
   customEvents: CalendarEvent[];
   setCustomEvents: (events: CalendarEvent[]) => void;
+  customCommands: AiCustomCommand[];
+  onUpsertCustomCommand: (cmd: AiCustomCommand) => void;
+  onDeleteCustomCommand: (id: string) => void;
   notify: (type: 'success' | 'error' | 'info', message: string) => void;
 }
 
@@ -67,6 +72,9 @@ export default function AiAssistantDrawer({
   setIndependentTags,
   customEvents,
   setCustomEvents,
+  customCommands,
+  onUpsertCustomCommand,
+  onDeleteCustomCommand,
   notify,
 }: AiAssistantDrawerProps) {
   const [tab, setTab] = useState<'chat' | 'mindmap' | 'extract'>('chat');
@@ -76,6 +84,12 @@ export default function AiAssistantDrawer({
   const [includeActiveNote, setIncludeActiveNote] = useState(true);
   const [includeWorkspaceSearch, setIncludeWorkspaceSearch] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isManagingCmds, setIsManagingCmds] = useState(false);
+  const [drawerEditingCmd, setDrawerEditingCmd] = useState<{
+    id: string;
+    name: string;
+    prompt: string;
+  } | null>(null);
 
   const [isGeneratingMindmap, setIsGeneratingMindmap] = useState(false);
   const [generatedNodes, setGeneratedNodes] = useState<MindmapNode[] | null>(null);
@@ -87,8 +101,8 @@ export default function AiAssistantDrawer({
 
   const activePreset = presets.find((p) => p.id === activePresetId) || presets[0];
 
-  const handleSendChat = async () => {
-    const trimmed = input.trim();
+  const handleSendChat = async (overridePrompt?: string, displayLabel?: string) => {
+    const trimmed = (overridePrompt ?? input).trim();
     if (!trimmed || isSending) return;
     if (!activePreset) {
       notify('error', '请先在系统设置中配置至少一个 AI 模型预设');
@@ -98,12 +112,14 @@ export default function AiAssistantDrawer({
     const userMsg: AiChatMessage = {
       id: `u_${Date.now()}`,
       role: 'user',
-      content: trimmed,
+      content: displayLabel ? `【${displayLabel}】\n${trimmed}` : trimmed,
       timestamp: Date.now(),
     };
     const nextMessages = [...messages, userMsg];
     setMessages(nextMessages);
-    setInput('');
+    if (overridePrompt === undefined) {
+      setInput('');
+    }
     setIsSending(true);
 
     try {
@@ -112,7 +128,7 @@ export default function AiAssistantDrawer({
         messages: nextMessages,
         activeNote,
         allNotes: notes,
-        includeActiveNote,
+        includeActiveNote: overridePrompt ? true : includeActiveNote,
         includeWorkspaceSearch,
       });
       setMessages((prev) => [
@@ -129,6 +145,25 @@ export default function AiAssistantDrawer({
     } finally {
       setIsSending(false);
     }
+  };
+
+  const handleSaveDrawerCommand = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!drawerEditingCmd) return;
+    const name = drawerEditingCmd.name.trim();
+    const prompt = drawerEditingCmd.prompt.trim();
+    if (!name || !prompt) {
+      notify('error', '请填写命令名称与指令内容');
+      return;
+    }
+    onUpsertCustomCommand({
+      id: drawerEditingCmd.id || `cmd_${Date.now()}`,
+      name,
+      prompt,
+      updatedAt: Date.now(),
+    });
+    setDrawerEditingCmd(null);
+    notify('success', `已保存自定义命令「${name}」`);
   };
 
   const handleGenerateMindmap = async () => {
@@ -446,6 +481,128 @@ export default function AiAssistantDrawer({
           </div>
 
           <div className="p-3 border-t sn-border shrink-0 space-y-2">
+            {/* Synced Custom AI Commands Quick Bar */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] sn-muted">
+                <span>快捷自定义命令</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDrawerEditingCmd(
+                        drawerEditingCmd
+                          ? null
+                          : { id: '', name: '', prompt: input.trim() }
+                      )
+                    }
+                    className="text-indigo-500 hover:underline font-medium"
+                  >
+                    + 新增
+                  </button>
+                  {customCommands.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setIsManagingCmds(!isManagingCmds)}
+                      className="hover:sn-text"
+                    >
+                      {isManagingCmds ? '完成' : '管理'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {drawerEditingCmd && (
+                <form
+                  onSubmit={handleSaveDrawerCommand}
+                  className="p-2.5 sn-surface border sn-border rounded-lg space-y-1.5"
+                >
+                  <input
+                    type="text"
+                    value={drawerEditingCmd.name}
+                    onChange={(e) =>
+                      setDrawerEditingCmd({ ...drawerEditingCmd, name: e.target.value })
+                    }
+                    placeholder="命令名称"
+                    className="w-full h-7 px-2 sn-input border rounded text-xs focus:outline-none focus:border-indigo-500"
+                  />
+                  <textarea
+                    rows={2}
+                    value={drawerEditingCmd.prompt}
+                    onChange={(e) =>
+                      setDrawerEditingCmd({ ...drawerEditingCmd, prompt: e.target.value })
+                    }
+                    placeholder="指令内容..."
+                    className="w-full p-2 sn-input border rounded text-xs focus:outline-none focus:border-indigo-500 resize-none"
+                  />
+                  <div className="flex justify-end gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setDrawerEditingCmd(null)}
+                      className="px-2 py-1 text-[11px] sn-muted hover:sn-text"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[11px] font-semibold"
+                    >
+                      保存
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {customCommands.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+                  {customCommands.map((cmd) => (
+                    <div
+                      key={cmd.id}
+                      className="inline-flex items-center rounded-md border sn-border sn-surface text-[11px] overflow-hidden"
+                    >
+                      <button
+                        type="button"
+                        disabled={isSending}
+                        onClick={() => handleSendChat(cmd.prompt, cmd.name)}
+                        className="px-2 py-1 sn-text hover:text-indigo-500 truncate max-w-[140px]"
+                        title={cmd.prompt}
+                      >
+                        {cmd.name}
+                      </button>
+                      {isManagingCmds && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDrawerEditingCmd({
+                                id: cmd.id,
+                                name: cmd.name,
+                                prompt: cmd.prompt,
+                              })
+                            }
+                            className="px-1 py-1 sn-muted hover:text-indigo-500 border-l sn-border"
+                            title="编辑"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onDeleteCustomCommand(cmd.id);
+                              notify('info', `已删除命令「${cmd.name}」`);
+                            }}
+                            className="px-1 py-1 sn-muted hover:text-rose-500 border-l sn-border"
+                            title="删除"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="flex gap-2">
               <textarea
                 rows={2}
@@ -457,13 +614,13 @@ export default function AiAssistantDrawer({
                     handleSendChat();
                   }
                 }}
-                placeholder="输入问题，Enter 发送 / Shift+Enter 换行..."
+                placeholder="输入问题或临时指令，Enter 发送 / Shift+Enter 换行..."
                 className="flex-1 px-3 py-2 text-xs sn-input border rounded-lg resize-none focus:outline-none focus:border-indigo-500"
               />
               <button
                 type="button"
                 disabled={isSending || !input.trim()}
-                onClick={handleSendChat}
+                onClick={() => handleSendChat()}
                 className="px-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg flex items-center justify-center shrink-0 transition-colors"
                 title="发送"
               >

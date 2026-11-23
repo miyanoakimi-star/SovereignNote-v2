@@ -6,6 +6,7 @@ import {
   CheckSquare,
   Code,
   Copy,
+  Edit3,
   Eye,
   EyeOff,
   FileDown,
@@ -16,16 +17,23 @@ import {
   List,
   ListOrdered,
   Loader2,
+  Plus,
   Quote,
   Search,
+  Send,
   Sparkles,
   Table,
+  Trash2,
   X,
 } from 'lucide-react';
-import { AiModelPreset, NavState, Note } from '../types';
+import { AiCustomCommand, AiModelPreset, NavState, Note } from '../types';
 import { parseMarkdown } from '../utils/markdown';
 import { universalExport } from '../utils/export';
-import { EditorAiAction, runEditorAiAction } from '../lib/ai';
+import {
+  EditorAiAction,
+  runCustomNoteAiInstruction,
+  runEditorAiAction,
+} from '../lib/ai';
 import Whiteboard from './Whiteboard';
 import Mindmap from './Mindmap';
 
@@ -47,6 +55,9 @@ interface NoteEditorProps {
   activePreset: AiModelPreset | undefined;
   isAiDrawerOpen: boolean;
   setIsAiDrawerOpen: (open: boolean) => void;
+  customCommands: AiCustomCommand[];
+  onUpsertCustomCommand: (cmd: AiCustomCommand) => void;
+  onDeleteCustomCommand: (id: string) => void;
   notify: (type: 'success' | 'error' | 'info', message: string) => void;
 }
 
@@ -68,6 +79,9 @@ export default function NoteEditor({
   activePreset,
   isAiDrawerOpen,
   setIsAiDrawerOpen,
+  customCommands,
+  onUpsertCustomCommand,
+  onDeleteCustomCommand,
   notify,
 }: NoteEditorProps) {
   const [editorMode, setEditorMode] = useState<'edit' | 'preview' | 'split'>('split');
@@ -79,11 +93,23 @@ export default function NoteEditor({
   const [inlinePromptType, setInlinePromptType] = useState<'tag' | 'date' | 'folder' | null>(null);
   const [inlinePromptVal, setInlinePromptVal] = useState('');
 
-  // Inline AI writing actions state
+  // Inline AI writing actions & custom command states
   const [isAiMenuOpen, setIsAiMenuOpen] = useState(false);
-  const [aiActionLoading, setAiActionLoading] = useState<EditorAiAction | null>(null);
+  const [aiActionLoading, setAiActionLoading] = useState<string | null>(null);
+  const [capturedSelectionRange, setCapturedSelectionRange] = useState<{
+    start: number;
+    end: number;
+  } | null>(null);
+  const [adHocPrompt, setAdHocPrompt] = useState('');
+  const [isSavingAdHoc, setIsSavingAdHoc] = useState(false);
+  const [adHocSaveName, setAdHocSaveName] = useState('');
+  const [menuEditingCmd, setMenuEditingCmd] = useState<{
+    id: string;
+    name: string;
+    prompt: string;
+  } | null>(null);
   const [aiPreviewResult, setAiPreviewResult] = useState<{
-    action: EditorAiAction;
+    label: string;
     text: string;
     selectionRange: { start: number; end: number } | null;
   } | null>(null);
@@ -423,6 +449,40 @@ export default function NoteEditor({
     setIsExportMenuOpen(false);
   };
 
+  const actionLabelMap: Record<EditorAiAction, string> = {
+    polish: 'AI 润色结果',
+    continue: 'AI 续写建议',
+    summarize: 'AI 摘要提炼',
+    fix: 'AI 校对修正',
+    translate: 'AI 翻译结果',
+  };
+
+  const resolveSelectionForAi = () => {
+    if (!activeNote) return { selectionRange: null, targetText: '' };
+    if (
+      capturedSelectionRange &&
+      capturedSelectionRange.end > capturedSelectionRange.start &&
+      capturedSelectionRange.end <= activeNote.content.length
+    ) {
+      return {
+        selectionRange: capturedSelectionRange,
+        targetText: activeNote.content.slice(
+          capturedSelectionRange.start,
+          capturedSelectionRange.end
+        ),
+      };
+    }
+    const textarea = document.getElementById('note-editor-textarea') as HTMLTextAreaElement | null;
+    const hasSelection = textarea && textarea.selectionStart !== textarea.selectionEnd;
+    const selectionRange = hasSelection
+      ? { start: textarea!.selectionStart, end: textarea!.selectionEnd }
+      : null;
+    const targetText = selectionRange
+      ? activeNote.content.slice(selectionRange.start, selectionRange.end)
+      : activeNote.content;
+    return { selectionRange, targetText };
+  };
+
   const handleTriggerAiAction = async (action: EditorAiAction) => {
     if (!activeNote) return;
     if (!activePreset) {
@@ -431,16 +491,7 @@ export default function NoteEditor({
     }
     setIsAiMenuOpen(false);
 
-    const textarea = document.getElementById('note-editor-textarea') as HTMLTextAreaElement | null;
-    const hasSelection =
-      textarea && textarea.selectionStart !== textarea.selectionEnd;
-    const selectionRange = hasSelection
-      ? { start: textarea!.selectionStart, end: textarea!.selectionEnd }
-      : null;
-    const targetText = selectionRange
-      ? activeNote.content.slice(selectionRange.start, selectionRange.end)
-      : activeNote.content;
-
+    const { selectionRange, targetText } = resolveSelectionForAi();
     if (!targetText.trim()) {
       notify('info', '当前笔记内容为空，请先输入文字后再使用 AI 处理');
       return;
@@ -454,12 +505,69 @@ export default function NoteEditor({
         text: targetText,
         noteTitle: activeNote.title,
       });
-      setAiPreviewResult({ action, text: output, selectionRange });
+      setAiPreviewResult({ label: actionLabelMap[action], text: output, selectionRange });
     } catch (err: any) {
       notify('error', err?.message || 'AI 写作处理失败');
     } finally {
       setAiActionLoading(null);
     }
+  };
+
+  const handleRunCustomInstruction = async (instruction: string, label?: string) => {
+    if (!activeNote) return;
+    if (!activePreset) {
+      notify('error', '请先配置或选择一个 AI 模型预设');
+      return;
+    }
+    const trimmed = instruction.trim();
+    if (!trimmed) {
+      notify('info', '请输入要执行的自定义指令');
+      return;
+    }
+
+    const { selectionRange, targetText } = resolveSelectionForAi();
+    if (!targetText.trim()) {
+      notify('info', '当前笔记内容为空，请先输入文字后再执行指令');
+      return;
+    }
+
+    setIsAiMenuOpen(false);
+    setAiActionLoading(label || 'custom');
+    try {
+      const output = await runCustomNoteAiInstruction({
+        preset: activePreset,
+        instruction: trimmed,
+        text: targetText,
+        noteTitle: activeNote.title,
+      });
+      const previewLabel = label
+        ? `自定义命令：${label}`
+        : `临时指令：${trimmed.slice(0, 18)}${trimmed.length > 18 ? '...' : ''}`;
+      setAiPreviewResult({ label: previewLabel, text: output, selectionRange });
+    } catch (err: any) {
+      notify('error', err?.message || '自定义指令执行失败');
+    } finally {
+      setAiActionLoading(null);
+    }
+  };
+
+  const handleSaveMenuCommand = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!menuEditingCmd) return;
+    const name = menuEditingCmd.name.trim();
+    const prompt = menuEditingCmd.prompt.trim();
+    if (!name || !prompt) {
+      notify('error', '请填写命令名称与指令内容');
+      return;
+    }
+    onUpsertCustomCommand({
+      id: menuEditingCmd.id || `cmd_${Date.now()}`,
+      name,
+      prompt,
+      updatedAt: Date.now(),
+    });
+    setMenuEditingCmd(null);
+    notify('success', `已保存常用命令「${name}」`);
   };
 
   const applyAiPreview = (mode: 'replaceSelection' | 'replaceAll' | 'append') => {
@@ -503,14 +611,6 @@ export default function NoteEditor({
       </div>
     );
   }
-
-  const actionLabelMap: Record<EditorAiAction, string> = {
-    polish: 'AI 润色结果',
-    continue: 'AI 续写建议',
-    summarize: 'AI 摘要提炼',
-    fix: 'AI 校对修正',
-    translate: 'AI 翻译结果',
-  };
 
   return (
     <div className="flex-1 flex flex-col sn-canvas overflow-hidden border-l sn-border min-w-0">
@@ -671,12 +771,25 @@ export default function NoteEditor({
             </div>
           )}
 
-          {/* Inline AI Actions Dropdown */}
+          {/* Inline AI Actions & Custom Commands Dropdown */}
           {activeNote.type !== 'whiteboard' && activeNote.type !== 'mindmap' && (
             <div className="relative">
               <button
                 type="button"
                 disabled={aiActionLoading !== null}
+                onMouseDown={() => {
+                  const textarea = document.getElementById(
+                    'note-editor-textarea'
+                  ) as HTMLTextAreaElement | null;
+                  if (textarea && textarea.selectionStart !== textarea.selectionEnd) {
+                    setCapturedSelectionRange({
+                      start: textarea.selectionStart,
+                      end: textarea.selectionEnd,
+                    });
+                  } else {
+                    setCapturedSelectionRange(null);
+                  }
+                }}
                 onClick={() => setIsAiMenuOpen(!isAiMenuOpen)}
                 className="h-8 px-2.5 rounded-lg border sn-border-strong sn-surface hover:border-indigo-500 sn-text text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0"
               >
@@ -688,42 +801,265 @@ export default function NoteEditor({
                 <span>AI 写作</span>
               </button>
               {isAiMenuOpen && (
-                <div className="absolute right-0 mt-1.5 w-44 sn-elevated border sn-border-strong rounded-xl shadow-xl p-1.5 z-40 space-y-0.5">
-                  <button
-                    type="button"
-                    onClick={() => handleTriggerAiAction('polish')}
-                    className="w-full text-left py-1.5 px-2.5 rounded-lg text-xs sn-text hover:bg-indigo-600 hover:text-white"
-                  >
-                    润色优化表达
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleTriggerAiAction('continue')}
-                    className="w-full text-left py-1.5 px-2.5 rounded-lg text-xs sn-text hover:bg-indigo-600 hover:text-white"
-                  >
-                    智能续写下文
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleTriggerAiAction('summarize')}
-                    className="w-full text-left py-1.5 px-2.5 rounded-lg text-xs sn-text hover:bg-indigo-600 hover:text-white"
-                  >
-                    提炼核心摘要
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleTriggerAiAction('fix')}
-                    className="w-full text-left py-1.5 px-2.5 rounded-lg text-xs sn-text hover:bg-indigo-600 hover:text-white"
-                  >
-                    纠错与格式整理
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleTriggerAiAction('translate')}
-                    className="w-full text-left py-1.5 px-2.5 rounded-lg text-xs sn-text hover:bg-indigo-600 hover:text-white"
-                  >
-                    中英互译
-                  </button>
+                <div className="absolute right-0 mt-1.5 w-80 sm:w-96 sn-elevated border sn-border-strong rounded-xl shadow-2xl p-3 z-40 space-y-3 select-text">
+                  {/* Header & Target Scope */}
+                  <div className="flex items-center justify-between text-[11px] sn-muted border-b sn-border pb-2">
+                    <span>
+                      作用范围：
+                      <strong className="sn-text font-semibold">
+                        {capturedSelectionRange
+                          ? `已选中 ${capturedSelectionRange.end - capturedSelectionRange.start} 字`
+                          : '整篇笔记'}
+                      </strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsAiMenuOpen(false)}
+                      className="sn-muted hover:sn-text p-0.5 rounded"
+                      aria-label="关闭 AI 菜单"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {/* Ad-hoc Free Custom Instruction */}
+                  <div className="space-y-2">
+                    <div className="text-[11px] font-semibold sn-text">临时自由指令</div>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={adHocPrompt}
+                        onChange={(e) => setAdHocPrompt(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleRunCustomInstruction(adHocPrompt);
+                          }
+                        }}
+                        placeholder="输入任意 AI 处理要求（回车立即执行）..."
+                        className="flex-1 min-w-0 h-8 px-2.5 sn-input border rounded-lg text-xs focus:outline-none focus:border-indigo-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRunCustomInstruction(adHocPrompt)}
+                        disabled={!adHocPrompt.trim()}
+                        className="h-8 px-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-45 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shrink-0"
+                      >
+                        <Send className="w-3 h-3" />
+                        <span>执行</span>
+                      </button>
+                    </div>
+
+                    {adHocPrompt.trim() && !isSavingAdHoc && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsSavingAdHoc(true);
+                          setAdHocSaveName(adHocPrompt.trim().slice(0, 12));
+                        }}
+                        className="text-[11px] text-indigo-500 hover:underline font-medium"
+                      >
+                        + 将当前指令存为常用命令
+                      </button>
+                    )}
+
+                    {isSavingAdHoc && (
+                      <div className="flex items-center gap-1.5 pt-1">
+                        <input
+                          type="text"
+                          value={adHocSaveName}
+                          onChange={(e) => setAdHocSaveName(e.target.value)}
+                          placeholder="输入常用命令名称..."
+                          className="flex-1 h-7 px-2 sn-input border rounded text-xs focus:outline-none focus:border-indigo-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const name = adHocSaveName.trim();
+                            const prompt = adHocPrompt.trim();
+                            if (!name || !prompt) {
+                              notify('error', '请输入命令名称和指令内容');
+                              return;
+                            }
+                            onUpsertCustomCommand({
+                              id: `cmd_${Date.now()}`,
+                              name,
+                              prompt,
+                              updatedAt: Date.now(),
+                            });
+                            setIsSavingAdHoc(false);
+                            setAdHocSaveName('');
+                            notify('success', `已将「${name}」存为常用 AI 命令`);
+                          }}
+                          className="h-7 px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[11px] font-semibold"
+                        >
+                          保存
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsSavingAdHoc(false)}
+                          className="h-7 px-2 sn-muted hover:sn-text text-[11px]"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Saved Custom Commands List + Inline CRUD */}
+                  <div className="space-y-1.5 border-t sn-border pt-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold sn-text">常用自定义命令</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setMenuEditingCmd(
+                            menuEditingCmd
+                              ? null
+                              : { id: '', name: '', prompt: adHocPrompt.trim() }
+                          )
+                        }
+                        className="text-[11px] text-indigo-500 hover:underline font-semibold flex items-center gap-0.5"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>{menuEditingCmd ? '收起' : '新增命令'}</span>
+                      </button>
+                    </div>
+
+                    {menuEditingCmd && (
+                      <form
+                        onSubmit={handleSaveMenuCommand}
+                        className="p-2.5 sn-surface border sn-border rounded-lg space-y-2"
+                      >
+                        <input
+                          type="text"
+                          value={menuEditingCmd.name}
+                          onChange={(e) =>
+                            setMenuEditingCmd({ ...menuEditingCmd, name: e.target.value })
+                          }
+                          placeholder="命令名称（如：提炼周报要点）"
+                          className="w-full h-7 px-2 sn-input border rounded text-xs focus:outline-none focus:border-indigo-500"
+                        />
+                        <textarea
+                          rows={2}
+                          value={menuEditingCmd.prompt}
+                          onChange={(e) =>
+                            setMenuEditingCmd({ ...menuEditingCmd, prompt: e.target.value })
+                          }
+                          placeholder="输入指令 Prompt..."
+                          className="w-full p-2 sn-input border rounded text-xs focus:outline-none focus:border-indigo-500 resize-none"
+                        />
+                        <div className="flex justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setMenuEditingCmd(null)}
+                            className="px-2 py-1 text-[11px] sn-muted hover:sn-text"
+                          >
+                            取消
+                          </button>
+                          <button
+                            type="submit"
+                            className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-[11px] font-semibold"
+                          >
+                            保存
+                          </button>
+                        </div>
+                      </form>
+                    )}
+
+                    {customCommands.length === 0 ? (
+                      <div className="text-[11px] sn-muted py-1.5">
+                        暂无保存的自定义命令，可点击上方「+ 新增命令」创建。
+                      </div>
+                    ) : (
+                      <div className="max-h-40 overflow-y-auto space-y-0.5 pr-0.5">
+                        {customCommands.map((cmd) => (
+                          <div
+                            key={cmd.id}
+                            className="flex items-center justify-between gap-1.5 rounded-lg hover:bg-indigo-500/10 px-2 py-1 group"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => handleRunCustomInstruction(cmd.prompt, cmd.name)}
+                              className="flex-1 min-w-0 text-left text-xs sn-text truncate py-0.5"
+                              title={cmd.prompt}
+                            >
+                              {cmd.name}
+                            </button>
+                            <div className="flex items-center gap-0.5 shrink-0 opacity-75 group-hover:opacity-100">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setMenuEditingCmd({
+                                    id: cmd.id,
+                                    name: cmd.name,
+                                    prompt: cmd.prompt,
+                                  })
+                                }
+                                className="p-1 sn-muted hover:text-indigo-500 rounded"
+                                title="编辑命令"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onDeleteCustomCommand(cmd.id);
+                                  notify('info', `已删除命令「${cmd.name}」`);
+                                }}
+                                className="p-1 sn-muted hover:text-rose-500 rounded"
+                                title="删除命令"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Built-in Quick Actions */}
+                  <div className="space-y-1.5 border-t sn-border pt-2.5">
+                    <div className="text-[11px] font-semibold sn-muted">基础写作工具</div>
+                    <div className="grid grid-cols-3 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => handleTriggerAiAction('polish')}
+                        className="py-1.5 px-2 rounded-md text-xs sn-surface border sn-border hover:border-indigo-500 sn-text truncate"
+                      >
+                        润色优化
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleTriggerAiAction('continue')}
+                        className="py-1.5 px-2 rounded-md text-xs sn-surface border sn-border hover:border-indigo-500 sn-text truncate"
+                      >
+                        智能续写
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleTriggerAiAction('summarize')}
+                        className="py-1.5 px-2 rounded-md text-xs sn-surface border sn-border hover:border-indigo-500 sn-text truncate"
+                      >
+                        核心摘要
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleTriggerAiAction('fix')}
+                        className="py-1.5 px-2 rounded-md text-xs sn-surface border sn-border hover:border-indigo-500 sn-text truncate"
+                      >
+                        纠错整理
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleTriggerAiAction('translate')}
+                        className="py-1.5 px-2 rounded-md text-xs sn-surface border sn-border hover:border-indigo-500 sn-text truncate"
+                      >
+                        中英互译
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -983,7 +1319,7 @@ export default function NoteEditor({
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-semibold text-indigo-500 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5" />
-              {actionLabelMap[aiPreviewResult.action]}
+              {aiPreviewResult.label}
             </span>
             <div className="flex items-center gap-2 text-xs">
               {aiPreviewResult.selectionRange && (

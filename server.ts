@@ -119,6 +119,150 @@ function buildOpenAiEndpoint(baseUrl: string): string {
   return `${clean}/v1/chat/completions`;
 }
 
+function buildOpenAiModelsUrls(baseUrl: string): string[] {
+  const clean = baseUrl.trim().replace(/\/+$/, '');
+  if (clean.endsWith('/chat/completions')) {
+    return [`${clean.slice(0, -'/chat/completions'.length)}/models`];
+  }
+  if (clean.endsWith('/models')) {
+    return [clean];
+  }
+  if (clean.endsWith('/v1')) {
+    return [`${clean}/models`];
+  }
+  return [`${clean}/v1/models`, `${clean}/models`];
+}
+
+interface NormalizedModelItem {
+  id: string;
+  displayName?: string;
+  ownedBy?: string;
+}
+
+function normalizeOpenAiModelsResponse(data: any): NormalizedModelItem[] {
+  const rawList = Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data?.models)
+    ? data.models
+    : [];
+  const seen = new Set<string>();
+  const models: NormalizedModelItem[] = [];
+  for (const item of rawList) {
+    const id = String(item?.id || item?.name || item?.model || '').trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    models.push({
+      id,
+      displayName: typeof item?.displayName === 'string' ? item.displayName : undefined,
+      ownedBy: typeof item?.owned_by === 'string' ? item.owned_by : undefined,
+    });
+  }
+  return models.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+async function fetchUpstreamOpenAiModels(params: {
+  baseUrl: string;
+  apiKey?: string;
+}): Promise<NormalizedModelItem[]> {
+  const candidates = buildOpenAiModelsUrls(params.baseUrl);
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+  };
+  if (params.apiKey && params.apiKey.trim()) {
+    headers['Authorization'] = `Bearer ${params.apiKey.trim()}`;
+  }
+
+  let lastError = '无法获取模型列表';
+  for (const candidateUrl of candidates) {
+    const validated = await validateExternalUrl(candidateUrl);
+    const upstreamRes = await fetch(validated.toString(), {
+      method: 'GET',
+      headers,
+      redirect: 'error',
+      signal: AbortSignal.timeout(15000),
+    });
+    const text = await upstreamRes.text();
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      lastError = `模型列表接口返回非 JSON 响应 (${upstreamRes.status})`;
+      continue;
+    }
+
+    if (!upstreamRes.ok) {
+      lastError = data?.error?.message || data?.message || `HTTP ${upstreamRes.status}`;
+      continue;
+    }
+
+    const models = normalizeOpenAiModelsResponse(data);
+    if (models.length > 0) {
+      return models;
+    }
+    lastError = '服务器返回了空的模型列表';
+  }
+  throw new Error(`抓取 OpenAI 兼容模型失败: ${lastError}`);
+}
+
+async function fetchUpstreamCustomGeminiModels(params: {
+  baseUrl: string;
+  apiKey?: string;
+}): Promise<NormalizedModelItem[]> {
+  const cleanBase = (params.baseUrl || 'https://generativelanguage.googleapis.com')
+    .trim()
+    .replace(/\/+$/, '');
+  const endpoint = cleanBase.endsWith('/models')
+    ? cleanBase
+    : cleanBase.includes('/v1beta')
+    ? `${cleanBase}/models`
+    : `${cleanBase}/v1beta/models`;
+
+  const validated = await validateExternalUrl(endpoint);
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+  };
+  if (params.apiKey && params.apiKey.trim()) {
+    headers['x-goog-api-key'] = params.apiKey.trim();
+  }
+
+  const upstreamRes = await fetch(validated.toString(), {
+    method: 'GET',
+    headers,
+    redirect: 'error',
+    signal: AbortSignal.timeout(15000),
+  });
+  const text = await upstreamRes.text();
+  let data: any;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(`自定义 Gemini 模型列表返回非 JSON 响应 (${upstreamRes.status})`);
+  }
+  if (!upstreamRes.ok) {
+    const errMsg = data?.error?.message || `HTTP ${upstreamRes.status}`;
+    throw new Error(`抓取自定义 Gemini 模型失败: ${errMsg}`);
+  }
+
+  const rawList = Array.isArray(data?.models) ? data.models : Array.isArray(data?.data) ? data.data : [];
+  const seen = new Set<string>();
+  const models: NormalizedModelItem[] = [];
+  for (const item of rawList) {
+    const methods: string[] | undefined = Array.isArray(item?.supportedGenerationMethods)
+      ? item.supportedGenerationMethods
+      : undefined;
+    if (methods && !methods.includes('generateContent')) continue;
+    const rawId = String(item?.name || item?.id || '').trim().replace(/^models\//, '');
+    if (!rawId || seen.has(rawId)) continue;
+    seen.add(rawId);
+    models.push({
+      id: rawId,
+      displayName: typeof item?.displayName === 'string' ? item.displayName : undefined,
+      ownedBy: 'Gemini API',
+    });
+  }
+  return models;
+}
+
 async function callUpstreamCustomOpenAi(params: {
   baseUrl: string;
   apiKey?: string;
@@ -251,6 +395,81 @@ async function startServer() {
       serverGeminiAvailable: Boolean(process.env.GEMINI_API_KEY),
       defaultModel: 'gemini-4-hydrogen',
     });
+  });
+
+  app.post('/api/ai/models', async (req: Request, res: Response) => {
+    try {
+      const { protocol, baseUrl, apiKey } = req.body || {};
+      if (!protocol) {
+        return res.status(400).json({ error: '缺少协议类型参数' });
+      }
+
+      if (protocol === 'server-gemini') {
+        const ai = getServerGeminiClient();
+        const curated: NormalizedModelItem[] = [
+          {
+            id: 'gemini-4-hydrogen',
+            displayName: 'Gemini 4 Hydrogen (默认高速文本)',
+            ownedBy: '内置服务端 Gemini',
+          },
+          {
+            id: 'gemini-3.1-flash-lite',
+            displayName: 'Gemini 3.1 Flash Lite (轻量快速)',
+            ownedBy: '内置服务端 Gemini',
+          },
+        ];
+
+        try {
+          const pager = await ai.models.list({ config: { pageSize: 50 } });
+          const seen = new Set(curated.map((m) => m.id));
+          const nonTextPattern = /(image|antigravity|deep-research|omni|tts|transcribe|live|embedding|lyria|genie)/i;
+          for await (const m of pager) {
+            const id = String(m?.name || '').replace(/^models\//, '').trim();
+            if (!id || seen.has(id) || PROHIBITED_GEMINI_MODELS.has(id) || nonTextPattern.test(id)) {
+              continue;
+            }
+            if (Array.isArray(m?.supportedActions) && !m.supportedActions.includes('generateContent')) {
+              continue;
+            }
+            seen.add(id);
+            curated.push({
+              id,
+              displayName: m?.displayName || undefined,
+              ownedBy: '内置服务端 Gemini',
+            });
+          }
+        } catch {
+          // Fall back to curated server models if listing is restricted by gateway
+        }
+
+        return res.json({ models: curated });
+      }
+
+      if (protocol === 'openai') {
+        if (!baseUrl || !String(baseUrl).trim()) {
+          return res.status(400).json({ error: '请先填写 API Base URL 再抓取模型' });
+        }
+        const models = await fetchUpstreamOpenAiModels({
+          baseUrl: String(baseUrl),
+          apiKey: apiKey ? String(apiKey) : undefined,
+        });
+        return res.json({ models });
+      }
+
+      if (protocol === 'gemini-custom') {
+        const models = await fetchUpstreamCustomGeminiModels({
+          baseUrl: String(baseUrl || 'https://generativelanguage.googleapis.com'),
+          apiKey: apiKey ? String(apiKey) : undefined,
+        });
+        return res.json({ models });
+      }
+
+      return res.status(400).json({ error: '不支持的模型协议类型' });
+    } catch (err: any) {
+      return res.status(500).json({
+        error: err?.message || '从服务器抓取模型列表失败',
+      });
+    }
   });
 
   app.post('/api/ai/chat', async (req: Request, res: Response) => {

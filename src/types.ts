@@ -103,3 +103,16 @@ export interface AiExtractedSuggestions {
     reason?: string;
   }>;
 }
+
+export interface FetchedAiModel {
+  id: string;
+  displayName?: string;
+  ownedBy?: string;
+}
+
+export interface AiCustomCommand {
+  id: string;
+  name: string;
+  prompt: string;
+  updatedAt: number;
+}

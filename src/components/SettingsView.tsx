@@ -9,22 +9,29 @@ import {
   ChevronUp,
   Copy,
   Database,
+  Download,
+  Edit3,
   Info,
   Loader2,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Search,
   Server,
   Settings,
   Sliders,
+  Sparkles,
   Terminal,
   Trash2,
 } from 'lucide-react';
 import { FTP } from '../plugins/ftp';
 import { SovereignNative } from '../plugins/sovereignNative';
 import {
+  AiCustomCommand,
   AiModelPreset,
   AiProtocol,
   CalendarEvent,
+  FetchedAiModel,
   FtpConfig,
   Note,
   ProbeLogItem,
@@ -33,7 +40,11 @@ import {
   WebDavConfig,
 } from '../types';
 import { addSyncLog, getApiBaseUrl } from '../lib/api';
-import { fetchServerAiStatus, testAiPresetConnection } from '../lib/ai';
+import {
+  fetchAiModelsFromServer,
+  fetchServerAiStatus,
+  testAiPresetConnection,
+} from '../lib/ai';
 import { universalExport } from '../utils/export';
 import { safeStorage } from '../utils/safeStorage';
 
@@ -66,7 +77,12 @@ interface SettingsViewProps {
   activePresetId: string;
   onSelectPreset: (id: string) => void;
   onUpsertPreset: (preset: AiModelPreset) => void;
+  onBatchAddPresets: (presets: AiModelPreset[]) => void;
   onDeletePreset: (id: string) => void;
+  customCommands: AiCustomCommand[];
+  onUpsertCustomCommand: (cmd: AiCustomCommand) => void;
+  onDeleteCustomCommand: (id: string) => void;
+  onResetCustomCommands: () => void;
   notify: (type: 'success' | 'error' | 'info', message: string) => void;
   releaseVersion: string;
 }
@@ -111,17 +127,33 @@ export default function SettingsView({
   activePresetId,
   onSelectPreset,
   onUpsertPreset,
+  onBatchAddPresets,
   onDeletePreset,
+  customCommands,
+  onUpsertCustomCommand,
+  onDeleteCustomCommand,
+  onResetCustomCommands,
   notify,
   releaseVersion,
 }: SettingsViewProps) {
-  // AI Presets State
+  // AI Presets & Model Fetching State
   const [serverAiAvailable, setServerAiAvailable] = useState<boolean | null>(null);
   const [editingPreset, setEditingPreset] = useState<AiModelPreset | null>(null);
   const [testingPresetId, setTestingPresetId] = useState<string | null>(null);
   const [presetTestResults, setPresetTestResults] = useState<
     Record<string, { ok: boolean; message: string; latencyMs: number }>
   >({});
+
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [fetchedModels, setFetchedModels] = useState<FetchedAiModel[]>([]);
+  const [fetchModelsError, setFetchModelsError] = useState<string | null>(null);
+  const [modelFilterQuery, setModelFilterQuery] = useState('');
+  const [selectedFetchedModelIds, setSelectedFetchedModelIds] = useState<Record<string, boolean>>({});
+
+  // Custom AI Commands Form State
+  const [editingCommand, setEditingCommand] = useState<{ id: string; name: string; prompt: string } | null>(
+    null
+  );
 
   // Cache reset confirmation
   const [confirmClearCache, setConfirmClearCache] = useState(false);
@@ -671,7 +703,115 @@ export default function SettingsView({
     onUpsertPreset(saved);
     onSelectPreset(saved.id);
     setEditingPreset(null);
+    setFetchedModels([]);
+    setFetchModelsError(null);
+    setSelectedFetchedModelIds({});
+    setModelFilterQuery('');
     notify('success', `已保存并启用 AI 模型预设「${saved.name}」`);
+  };
+
+  const handleFetchModelsForPreset = async (targetPreset: AiModelPreset) => {
+    setIsFetchingModels(true);
+    setFetchModelsError(null);
+    setModelFilterQuery('');
+    setSelectedFetchedModelIds({});
+    try {
+      const models = await fetchAiModelsFromServer({
+        protocol: targetPreset.protocol,
+        baseUrl: targetPreset.baseUrl,
+        apiKey: targetPreset.apiKey,
+        directBrowser: targetPreset.directBrowser,
+      });
+      setFetchedModels(models);
+      if (models.length === 0) {
+        notify('info', '服务器返回了空的模型列表');
+      } else {
+        notify('success', `成功从服务器抓取 ${models.length} 个可用模型`);
+      }
+    } catch (err: any) {
+      const msg = err?.message || '从服务器抓取模型失败';
+      setFetchModelsError(msg);
+      setFetchedModels([]);
+      notify('error', msg);
+    } finally {
+      setIsFetchingModels(false);
+    }
+  };
+
+  const filteredFetchedModels = useMemo(() => {
+    const q = modelFilterQuery.trim().toLowerCase();
+    if (!q) return fetchedModels;
+    return fetchedModels.filter(
+      (m) =>
+        m.id.toLowerCase().includes(q) ||
+        (m.displayName || '').toLowerCase().includes(q) ||
+        (m.ownedBy || '').toLowerCase().includes(q)
+    );
+  }, [fetchedModels, modelFilterQuery]);
+
+  const selectedModelCount = useMemo(
+    () => Object.values(selectedFetchedModelIds).filter(Boolean).length,
+    [selectedFetchedModelIds]
+  );
+
+  const handleBatchCreatePresetsFromFetched = () => {
+    if (!editingPreset) return;
+    const chosenIds = Object.keys(selectedFetchedModelIds).filter((id) => selectedFetchedModelIds[id]);
+    if (chosenIds.length === 0) {
+      notify('info', '请先勾选至少一个要生成预设的模型');
+      return;
+    }
+    const existingKeys = new Set(
+      presets.map((p) => `${p.protocol}::${p.baseUrl.trim()}::${p.model.trim()}`)
+    );
+    const prefix = editingPreset.name.trim();
+    const toCreate: AiModelPreset[] = [];
+    chosenIds.forEach((modelId, idx) => {
+      const key = `${editingPreset.protocol}::${editingPreset.baseUrl.trim()}::${modelId.trim()}`;
+      if (existingKeys.has(key)) return;
+      const modelMeta = fetchedModels.find((m) => m.id === modelId);
+      const label = prefix
+        ? `${prefix} · ${modelId}`
+        : modelMeta?.displayName || modelId;
+      toCreate.push({
+        id: `preset_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+        name: label,
+        protocol: editingPreset.protocol,
+        baseUrl: editingPreset.baseUrl.trim(),
+        apiKey: editingPreset.protocol === 'server-gemini' ? '' : editingPreset.apiKey.trim(),
+        model: modelId,
+        systemPrompt: editingPreset.systemPrompt?.trim() || '',
+        directBrowser: editingPreset.directBrowser,
+      });
+    });
+
+    if (toCreate.length === 0) {
+      notify('info', '所选模型已全部存在于预设列表中');
+      return;
+    }
+
+    onBatchAddPresets(toCreate);
+    setSelectedFetchedModelIds({});
+    notify('success', `已批量生成 ${toCreate.length} 条模型预设`);
+  };
+
+  const handleSaveCustomCommand = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCommand) return;
+    const name = editingCommand.name.trim();
+    const prompt = editingCommand.prompt.trim();
+    if (!name || !prompt) {
+      notify('error', '请填写命令名称与指令内容');
+      return;
+    }
+    onUpsertCustomCommand({
+      id: editingCommand.id || `cmd_${Date.now()}`,
+      name,
+      prompt,
+      updatedAt: Date.now(),
+    });
+    setEditingCommand(null);
+    notify('success', `已保存自定义 AI 命令「${name}」`);
   };
 
   const handleTestPreset = async (preset: AiModelPreset) => {
@@ -742,7 +882,12 @@ export default function SettingsView({
               </div>
               <button
                 type="button"
-                onClick={() => setEditingPreset({ ...EMPTY_PRESET_FORM })}
+                onClick={() => {
+                  setEditingPreset({ ...EMPTY_PRESET_FORM });
+                  setFetchedModels([]);
+                  setFetchModelsError(null);
+                  setSelectedFetchedModelIds({});
+                }}
                 className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 shrink-0 transition-colors"
               >
                 <Plus className="w-4 h-4" />
@@ -762,7 +907,11 @@ export default function SettingsView({
                   </h3>
                   <button
                     type="button"
-                    onClick={() => setEditingPreset(null)}
+                    onClick={() => {
+                      setEditingPreset(null);
+                      setFetchedModels([]);
+                      setFetchModelsError(null);
+                    }}
                     className="text-xs sn-muted hover:sn-text"
                   >
                     取消
@@ -789,6 +938,9 @@ export default function SettingsView({
                       value={editingPreset.protocol}
                       onChange={(e) => {
                         const protocol = e.target.value as AiProtocol;
+                        setFetchedModels([]);
+                        setFetchModelsError(null);
+                        setSelectedFetchedModelIds({});
                         setEditingPreset({
                           ...editingPreset,
                           protocol,
@@ -836,15 +988,31 @@ export default function SettingsView({
 
                   <div className="space-y-1">
                     <label className="text-xs sn-muted font-semibold">模型名称 (Model ID)</label>
-                    <input
-                      type="text"
-                      value={editingPreset.model}
-                      onChange={(e) =>
-                        setEditingPreset({ ...editingPreset, model: e.target.value })
-                      }
-                      placeholder="例如：gemini-4-hydrogen / deepseek-chat / qwen2.5:7b"
-                      className="w-full sn-input border rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-indigo-500"
-                    />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={editingPreset.model}
+                        onChange={(e) =>
+                          setEditingPreset({ ...editingPreset, model: e.target.value })
+                        }
+                        placeholder="例如：gemini-4-hydrogen / deepseek-chat"
+                        className="flex-1 min-w-0 sn-input border rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-indigo-500"
+                      />
+                      <button
+                        type="button"
+                        disabled={isFetchingModels}
+                        onClick={() => handleFetchModelsForPreset(editingPreset)}
+                        className="h-[34px] px-3 sn-elevated border sn-border-strong hover:border-indigo-500 sn-text rounded-lg text-xs font-medium flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                        title="从当前服务器抓取可用模型列表"
+                      >
+                        {isFetchingModels ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+                        ) : (
+                          <Download className="w-3.5 h-3.5 text-indigo-500" />
+                        )}
+                        <span>抓取模型</span>
+                      </button>
+                    </div>
                   </div>
 
                   {editingPreset.protocol !== 'server-gemini' && (
@@ -859,6 +1027,144 @@ export default function SettingsView({
                         placeholder="sk-...（仅保存在当前设备本地存储）"
                         className="w-full sn-input border rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-indigo-500"
                       />
+                    </div>
+                  )}
+
+                  {/* Server Fetched Models Picker */}
+                  {(isFetchingModels || fetchModelsError || fetchedModels.length > 0) && (
+                    <div className="md:col-span-2 sn-panel border sn-border rounded-xl p-3.5 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs font-semibold sn-text flex items-center gap-2">
+                          <span>服务器可用模型列表</span>
+                          {fetchedModels.length > 0 && (
+                            <span className="font-mono tabular-nums sn-muted font-normal">
+                              共 {fetchedModels.length} 项
+                            </span>
+                          )}
+                        </div>
+                        {fetchedModels.length > 0 && (
+                          <div className="flex items-center gap-2 text-xs">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const allChecked = filteredFetchedModels.every(
+                                  (m) => selectedFetchedModelIds[m.id]
+                                );
+                                if (allChecked) {
+                                  setSelectedFetchedModelIds({});
+                                } else {
+                                  const next: Record<string, boolean> = { ...selectedFetchedModelIds };
+                                  filteredFetchedModels.forEach((m) => {
+                                    next[m.id] = true;
+                                  });
+                                  setSelectedFetchedModelIds(next);
+                                }
+                              }}
+                              className="text-indigo-500 hover:underline font-medium"
+                            >
+                              {filteredFetchedModels.length > 0 &&
+                              filteredFetchedModels.every((m) => selectedFetchedModelIds[m.id])
+                                ? '取消全选'
+                                : '全选当前筛选'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleBatchCreatePresetsFromFetched}
+                              disabled={selectedModelCount === 0}
+                              className="px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 disabled:opacity-45 text-white font-semibold whitespace-nowrap"
+                            >
+                              批量生成预设 ({selectedModelCount})
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {isFetchingModels && (
+                        <div className="py-4 flex items-center justify-center gap-2 text-xs sn-muted">
+                          <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                          <span>正在向服务器请求模型目录...</span>
+                        </div>
+                      )}
+
+                      {fetchModelsError && !isFetchingModels && (
+                        <div className="text-xs text-rose-500 py-1">{fetchModelsError}</div>
+                      )}
+
+                      {fetchedModels.length > 0 && !isFetchingModels && (
+                        <>
+                          <div className="relative">
+                            <Search className="w-3.5 h-3.5 sn-muted absolute left-2.5 top-2.5 pointer-events-none" />
+                            <input
+                              type="text"
+                              value={modelFilterQuery}
+                              onChange={(e) => setModelFilterQuery(e.target.value)}
+                              placeholder="筛选模型 ID 或名称..."
+                              className="w-full h-8 pl-8 pr-3 sn-input border rounded-lg text-xs font-mono focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+
+                          <div className="max-h-52 overflow-y-auto divide-y sn-border border sn-border rounded-lg">
+                            {filteredFetchedModels.length === 0 ? (
+                              <div className="p-4 text-center text-xs sn-muted">
+                                没有匹配「{modelFilterQuery}」的模型
+                              </div>
+                            ) : (
+                              filteredFetchedModels.map((m) => {
+                                const isChecked = Boolean(selectedFetchedModelIds[m.id]);
+                                const isCurrentModel = editingPreset.model.trim() === m.id;
+                                return (
+                                  <div
+                                    key={m.id}
+                                    className="px-3 py-2 flex items-center justify-between gap-3 text-xs hover:bg-indigo-500/5"
+                                  >
+                                    <label className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={(e) =>
+                                          setSelectedFetchedModelIds((prev) => ({
+                                            ...prev,
+                                            [m.id]: e.target.checked,
+                                          }))
+                                        }
+                                        className="accent-indigo-500 rounded shrink-0"
+                                      />
+                                      <div className="min-w-0 flex-1">
+                                        <div className="font-mono sn-text truncate">{m.id}</div>
+                                        {(m.displayName || m.ownedBy) && (
+                                          <div className="text-[11px] sn-muted truncate">
+                                            {[m.displayName, m.ownedBy].filter(Boolean).join(' · ')}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingPreset({
+                                          ...editingPreset,
+                                          model: m.id,
+                                          name: editingPreset.name.trim()
+                                            ? editingPreset.name
+                                            : m.displayName || m.id,
+                                        });
+                                        notify('info', `已填入模型 ID：${m.id}`);
+                                      }}
+                                      className={`px-2.5 py-1 rounded-md font-medium whitespace-nowrap shrink-0 transition-colors ${
+                                        isCurrentModel
+                                          ? 'bg-emerald-600/15 text-emerald-500'
+                                          : 'sn-elevated border sn-border-strong sn-text hover:border-indigo-500'
+                                      }`}
+                                    >
+                                      {isCurrentModel ? '已填入' : '单选填入'}
+                                    </button>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </>
+                      )}
                     </div>
                   )}
 
@@ -900,7 +1206,11 @@ export default function SettingsView({
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
-                    onClick={() => setEditingPreset(null)}
+                    onClick={() => {
+                      setEditingPreset(null);
+                      setFetchedModels([]);
+                      setFetchModelsError(null);
+                    }}
                     className="px-3.5 py-2 rounded-lg border sn-border-strong text-xs sn-muted hover:sn-text"
                   >
                     取消
@@ -985,6 +1295,18 @@ export default function SettingsView({
                         )}
                         <button
                           type="button"
+                          onClick={() => {
+                            const draft = { ...preset };
+                            setEditingPreset(draft);
+                            handleFetchModelsForPreset(draft);
+                          }}
+                          className="px-2.5 py-1.5 sn-elevated border sn-border-strong hover:border-indigo-500 sn-text rounded-lg font-medium flex items-center gap-1"
+                        >
+                          <Download className="w-3 h-3 text-indigo-500" />
+                          <span>抓取模型</span>
+                        </button>
+                        <button
+                          type="button"
                           disabled={isTesting}
                           onClick={() => handleTestPreset(preset)}
                           className="px-2.5 py-1.5 sn-elevated border sn-border-strong hover:border-indigo-500 sn-text rounded-lg font-medium flex items-center gap-1"
@@ -994,20 +1316,26 @@ export default function SettingsView({
                         </button>
                         <button
                           type="button"
-                          onClick={() => setEditingPreset({ ...preset })}
+                          onClick={() => {
+                            setEditingPreset({ ...preset });
+                            setFetchedModels([]);
+                            setFetchModelsError(null);
+                          }}
                           className="px-2.5 py-1.5 sn-elevated border sn-border-strong hover:border-indigo-500 sn-text rounded-lg font-medium"
                         >
                           编辑
                         </button>
                         <button
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
                             setEditingPreset({
                               ...preset,
                               id: '',
                               name: `${preset.name} (副本)`,
-                            })
-                          }
+                            });
+                            setFetchedModels([]);
+                            setFetchModelsError(null);
+                          }}
                           className="p-1.5 sn-muted hover:sn-text rounded-lg"
                           title="复制预设"
                         >
@@ -1031,6 +1359,144 @@ export default function SettingsView({
                   </div>
                 );
               })}
+            </div>
+
+            {/* Custom AI Commands Section (synced with NoteEditor & AiAssistantDrawer) */}
+            <div className="pt-4 border-t sn-border space-y-4">
+              <div className="p-5 sn-panel rounded-xl border sn-border flex flex-wrap items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 text-sm font-bold sn-text">
+                    <Sparkles className="w-4 h-4 text-indigo-500" />
+                    <span>笔记自定义 AI 命令管理</span>
+                  </div>
+                  <p className="text-xs sn-muted">
+                    自定义常用指令会实时同步到笔记栏「AI 写作」菜单与右侧「AI 助手」抽屉，并支持在笔记页随时临时输入指令并保存。
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onResetCustomCommands();
+                      notify('info', '已恢复默认常用 AI 命令');
+                    }}
+                    className="px-3 py-2 sn-elevated border sn-border-strong hover:border-indigo-500 sn-text text-xs font-medium rounded-lg flex items-center gap-1.5"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>恢复默认</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingCommand({ id: '', name: '', prompt: '' })}
+                    className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>新增命令</span>
+                  </button>
+                </div>
+              </div>
+
+              {editingCommand && (
+                <form
+                  onSubmit={handleSaveCustomCommand}
+                  className="p-4 sn-surface rounded-xl border border-indigo-500/40 space-y-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold sn-text">
+                      {editingCommand.id ? '编辑自定义 AI 命令' : '新增自定义 AI 命令'}
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => setEditingCommand(null)}
+                      className="text-xs sn-muted hover:sn-text"
+                    >
+                      取消
+                    </button>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs sn-muted font-semibold">命令名称</label>
+                    <input
+                      type="text"
+                      value={editingCommand.name}
+                      onChange={(e) =>
+                        setEditingCommand({ ...editingCommand, name: e.target.value })
+                      }
+                      placeholder="例如：整理为周报 / 提炼技术风险"
+                      className="w-full sn-input border rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs sn-muted font-semibold">AI 执行指令 (Prompt)</label>
+                    <textarea
+                      rows={3}
+                      value={editingCommand.prompt}
+                      onChange={(e) =>
+                        setEditingCommand({ ...editingCommand, prompt: e.target.value })
+                      }
+                      placeholder="描述希望 AI 对当前笔记或选中片段执行的具体要求..."
+                      className="w-full sn-input border rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 resize-none"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingCommand(null)}
+                      className="px-3 py-1.5 rounded-lg border sn-border-strong text-xs sn-muted hover:sn-text"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg"
+                    >
+                      保存命令
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {customCommands.length === 0 ? (
+                <div className="p-6 sn-panel rounded-xl border sn-border text-center text-xs sn-muted space-y-2">
+                  <p>当前尚未添加自定义 AI 命令，点击右上角「新增命令」或在笔记栏直接保存常用指令。</p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {customCommands.map((cmd) => (
+                    <div
+                      key={cmd.id}
+                      className="p-4 sn-panel rounded-xl border sn-border flex items-start justify-between gap-4"
+                    >
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="text-xs font-bold sn-text">{cmd.name}</div>
+                        <p className="text-xs sn-muted leading-relaxed break-words">{cmd.prompt}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingCommand({ id: cmd.id, name: cmd.name, prompt: cmd.prompt })
+                          }
+                          className="px-2.5 py-1.5 sn-elevated border sn-border-strong hover:border-indigo-500 sn-text rounded-lg text-xs font-medium flex items-center gap-1"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                          <span>编辑</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onDeleteCustomCommand(cmd.id);
+                            notify('info', `已删除自定义命令「${cmd.name}」`);
+                          }}
+                          className="p-1.5 sn-muted hover:text-rose-500 rounded-lg"
+                          title="删除命令"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

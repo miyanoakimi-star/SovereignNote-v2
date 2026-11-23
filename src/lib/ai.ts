@@ -1,8 +1,10 @@
 import { Capacitor } from '@capacitor/core';
 import {
   AiChatMessage,
+  AiCustomCommand,
   AiExtractedSuggestions,
   AiModelPreset,
+  FetchedAiModel,
   MindmapNode,
   Note,
 } from '../types';
@@ -10,6 +12,7 @@ import { safeStorage } from '../utils/safeStorage';
 
 const PRESETS_STORAGE_KEY = 'sovereign_ai_presets';
 const ACTIVE_PRESET_KEY = 'sovereign_ai_active_preset_id';
+const CUSTOM_COMMANDS_KEY = 'sovereign_ai_custom_commands';
 
 export const DEFAULT_AI_PRESETS: AiModelPreset[] = [
   {
@@ -75,6 +78,50 @@ export function loadActivePresetId(presets: AiModelPreset[]): string {
 
 export function saveActivePresetId(id: string): void {
   safeStorage.setItem(ACTIVE_PRESET_KEY, id);
+}
+
+export const DEFAULT_CUSTOM_AI_COMMANDS: AiCustomCommand[] = [
+  {
+    id: 'cmd-action-items',
+    name: '提取待办清单',
+    prompt: '请从以下笔记内容中提取所有待办事项与行动项，使用 Markdown 任务列表（- [ ] ）格式整理输出，若有时间节点一并标注。',
+    updatedAt: 1,
+  },
+  {
+    id: 'cmd-outline',
+    name: '转为结构大纲',
+    prompt: '请将以下笔记内容重构为清晰的分级大纲，保留核心论据、结论与关键数字，使用 Markdown 标题与列表呈现。',
+    updatedAt: 2,
+  },
+  {
+    id: 'cmd-meeting-minutes',
+    name: '整理会议纪要',
+    prompt: '请将以下零散记录整理为规范的会议纪要，包含「会议主题」「核心讨论点」「决议事项」「后续行动」四个小节。',
+    updatedAt: 3,
+  },
+];
+
+export function loadCustomAiCommands(): AiCustomCommand[] {
+  try {
+    const raw = safeStorage.getItem(CUSTOM_COMMANDS_KEY);
+    if (!raw) return DEFAULT_CUSTOM_AI_COMMANDS;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch {
+    // ignore storage parse failure
+  }
+  return DEFAULT_CUSTOM_AI_COMMANDS;
+}
+
+export function saveCustomAiCommands(commands: AiCustomCommand[]): void {
+  safeStorage.setItem(CUSTOM_COMMANDS_KEY, JSON.stringify(commands));
+}
+
+export function resetCustomAiCommands(): AiCustomCommand[] {
+  saveCustomAiCommands(DEFAULT_CUSTOM_AI_COMMANDS);
+  return DEFAULT_CUSTOM_AI_COMMANDS;
 }
 
 function isLocalHostname(urlStr: string): boolean {
@@ -195,6 +242,129 @@ export async function fetchServerAiStatus(): Promise<{
   }
 }
 
+function buildOpenAiModelsUrls(baseUrl: string): string[] {
+  const clean = baseUrl.trim().replace(/\/+$/, '');
+  if (clean.endsWith('/chat/completions')) {
+    return [`${clean.slice(0, -'/chat/completions'.length)}/models`];
+  }
+  if (clean.endsWith('/models')) {
+    return [clean];
+  }
+  if (clean.endsWith('/v1')) {
+    return [`${clean}/models`];
+  }
+  return [`${clean}/v1/models`, `${clean}/models`];
+}
+
+export async function fetchAiModelsFromServer(preset: {
+  protocol: AiModelPreset['protocol'];
+  baseUrl: string;
+  apiKey: string;
+  directBrowser?: boolean;
+}): Promise<FetchedAiModel[]> {
+  if (
+    preset.protocol !== 'server-gemini' &&
+    (Capacitor.isNativePlatform() || preset.directBrowser || (preset.baseUrl && isLocalHostname(preset.baseUrl)))
+  ) {
+    if (preset.protocol === 'openai') {
+      if (!preset.baseUrl?.trim()) {
+        throw new Error('请先填写 API Base URL');
+      }
+      const urls = buildOpenAiModelsUrls(preset.baseUrl);
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      if (preset.apiKey?.trim()) {
+        headers['Authorization'] = `Bearer ${preset.apiKey.trim()}`;
+      }
+      let lastErr = '请求失败';
+      for (const url of urls) {
+        try {
+          const res = await fetch(url, { method: 'GET', headers });
+          const data = await res.json();
+          if (!res.ok) {
+            lastErr = data?.error?.message || `HTTP ${res.status}`;
+            continue;
+          }
+          const rawList = Array.isArray(data?.data)
+            ? data.data
+            : Array.isArray(data?.models)
+            ? data.models
+            : [];
+          const seen = new Set<string>();
+          const models: FetchedAiModel[] = [];
+          for (const item of rawList) {
+            const id = String(item?.id || item?.name || item?.model || '').trim();
+            if (!id || seen.has(id)) continue;
+            seen.add(id);
+            models.push({
+              id,
+              displayName: typeof item?.displayName === 'string' ? item.displayName : undefined,
+              ownedBy: typeof item?.owned_by === 'string' ? item.owned_by : '本地直连',
+            });
+          }
+          if (models.length > 0) {
+            return models.sort((a, b) => a.id.localeCompare(b.id));
+          }
+          lastErr = '服务器返回了空的模型列表';
+        } catch (err: any) {
+          lastErr = err?.message || '直连网络失败';
+        }
+      }
+      throw new Error(`直连抓取模型失败: ${lastErr}`);
+    }
+
+    const cleanBase = (preset.baseUrl || 'https://generativelanguage.googleapis.com')
+      .trim()
+      .replace(/\/+$/, '');
+    const endpoint = cleanBase.endsWith('/models')
+      ? cleanBase
+      : cleanBase.includes('/v1beta')
+      ? `${cleanBase}/models`
+      : `${cleanBase}/v1beta/models`;
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (preset.apiKey?.trim()) {
+      headers['x-goog-api-key'] = preset.apiKey.trim();
+    }
+    const res = await fetch(endpoint, { method: 'GET', headers });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data?.error?.message || `直连抓取失败 (HTTP ${res.status})`);
+    }
+    const rawList = Array.isArray(data?.models) ? data.models : Array.isArray(data?.data) ? data.data : [];
+    const seen = new Set<string>();
+    const models: FetchedAiModel[] = [];
+    for (const item of rawList) {
+      const methods: string[] | undefined = Array.isArray(item?.supportedGenerationMethods)
+        ? item.supportedGenerationMethods
+        : undefined;
+      if (methods && !methods.includes('generateContent')) continue;
+      const id = String(item?.name || item?.id || '').trim().replace(/^models\//, '');
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      models.push({
+        id,
+        displayName: typeof item?.displayName === 'string' ? item.displayName : undefined,
+        ownedBy: 'Gemini API',
+      });
+    }
+    return models;
+  }
+
+  const res = await fetch('/api/ai/models', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      protocol: preset.protocol,
+      baseUrl: preset.baseUrl,
+      apiKey: preset.apiKey,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data?.error || `从服务器抓取模型失败 (${res.status})`);
+  }
+  return Array.isArray(data?.models) ? data.models : [];
+}
+
 export async function sendAiChat(params: {
   preset: AiModelPreset;
   messages: AiChatMessage[];
@@ -301,6 +471,39 @@ export async function runEditorAiAction(params: {
     messages: [
       {
         id: 'action-1',
+        role: 'user',
+        content: prompt,
+        timestamp: Date.now(),
+      },
+    ],
+  });
+}
+
+export async function runCustomNoteAiInstruction(params: {
+  preset: AiModelPreset;
+  instruction: string;
+  text: string;
+  noteTitle: string;
+}): Promise<string> {
+  const { preset, instruction, text, noteTitle } = params;
+  const trimmedInstruction = instruction.trim();
+  if (!trimmedInstruction) {
+    throw new Error('请输入自定义 AI 指令');
+  }
+  const trimmedText = text.trim();
+  if (!trimmedText) {
+    throw new Error('当前笔记内容为空，请先输入或选中内容后再执行指令');
+  }
+
+  const systemInstruction =
+    '你是 SovereignNote 的智能笔记处理引擎。请严格按照用户的自定义指令处理提供的笔记内容，直接输出处理结果（优先使用清晰规范的 Markdown 格式），不要附加与结果无关的寒暄。';
+  const prompt = `【用户自定义指令】\n${trimmedInstruction}\n\n【笔记标题】\n${noteTitle || '无标题'}\n\n【待处理内容】\n${trimmedText.slice(0, 8000)}`;
+
+  return await sendAiChat({
+    preset: { ...preset, systemPrompt: systemInstruction },
+    messages: [
+      {
+        id: 'custom-cmd-1',
         role: 'user',
         content: prompt,
         timestamp: Date.now(),
