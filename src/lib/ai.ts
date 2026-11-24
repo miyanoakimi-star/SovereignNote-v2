@@ -148,6 +148,36 @@ function buildOpenAiEndpoint(baseUrl: string): string {
   return `${clean}/v1/chat/completions`;
 }
 
+async function parseJsonSafe(res: Response): Promise<{
+  ok: boolean;
+  status: number;
+  data: any;
+  rawText: string;
+}> {
+  const rawText = await res.text();
+  let data: any = null;
+  if (rawText.trim()) {
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      data = null;
+    }
+  }
+  return { ok: res.ok, status: res.status, data, rawText };
+}
+
+function isProxyUnavailable(status: number, rawText: string): boolean {
+  return status === 404 || rawText.includes('API Endpoint Not Found');
+}
+
+function extractErrorDetail(parsed: { status: number; data: any; rawText: string }, fallback: string): string {
+  if (parsed.data?.error?.message) return String(parsed.data.error.message);
+  if (typeof parsed.data?.error === 'string' && parsed.data.error) return parsed.data.error;
+  if (parsed.data?.message) return String(parsed.data.message);
+  if (parsed.rawText.trim()) return parsed.rawText.trim().slice(0, 180);
+  return `${fallback} (HTTP ${parsed.status})`;
+}
+
 async function callDirectBrowser(
   preset: AiModelPreset,
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
@@ -158,6 +188,9 @@ async function callDirectBrowser(
   }
 
   if (preset.protocol === 'openai') {
+    if (!preset.baseUrl?.trim()) {
+      throw new Error('请填写自定义 OpenAI 兼容接口的 API Base URL');
+    }
     const endpoint = buildOpenAiEndpoint(preset.baseUrl);
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (preset.apiKey?.trim()) {
@@ -170,17 +203,25 @@ async function callDirectBrowser(
     if (jsonMode) {
       body.response_format = { type: 'json_object' };
     }
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data?.error?.message || `HTTP ${res.status}`);
+    let res: Response;
+    try {
+      res = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+    } catch (err: any) {
+      throw new Error(`直连接口网络失败（请检查地址或跨域 CORS 设置）：${err?.message || err}`);
     }
-    const content = data?.choices?.[0]?.message?.content;
-    if (typeof content !== 'string') throw new Error('接口未返回文本内容');
+    const parsed = await parseJsonSafe(res);
+    if (!parsed.ok) {
+      throw new Error(extractErrorDetail(parsed, '接口请求失败'));
+    }
+    if (!parsed.data) {
+      throw new Error(`接口未返回有效 JSON：${parsed.rawText.slice(0, 120) || '空响应'}`);
+    }
+    const content = parsed.data?.choices?.[0]?.message?.content;
+    if (typeof content !== 'string') throw new Error('接口未返回标准文本内容');
     return content;
   }
 
@@ -208,16 +249,24 @@ async function callDirectBrowser(
   if (jsonMode) {
     payload.generationConfig = { responseMimeType: 'application/json' };
   }
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(payload),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error?.message || `HTTP ${res.status}`);
+  let res: Response;
+  try {
+    res = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch (err: any) {
+    throw new Error(`直连 Gemini 接口网络失败：${err?.message || err}`);
   }
-  const reply = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || '').join('') || '';
+  const parsed = await parseJsonSafe(res);
+  if (!parsed.ok) {
+    throw new Error(extractErrorDetail(parsed, 'Gemini 接口请求失败'));
+  }
+  if (!parsed.data) {
+    throw new Error(`Gemini 接口未返回有效 JSON：${parsed.rawText.slice(0, 120) || '空响应'}`);
+  }
+  const reply = parsed.data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || '').join('') || '';
   if (!reply) throw new Error('接口未返回有效内容');
   return reply;
 }
@@ -235,8 +284,11 @@ export async function fetchServerAiStatus(): Promise<{
 }> {
   try {
     const res = await fetch('/api/ai/status');
-    if (!res.ok) return { serverGeminiAvailable: false, defaultModel: 'gemini-4-hydrogen' };
-    return await res.json();
+    const parsed = await parseJsonSafe(res);
+    if (!parsed.ok || !parsed.data) {
+      return { serverGeminiAvailable: false, defaultModel: 'gemini-4-hydrogen' };
+    }
+    return parsed.data;
   } catch {
     return { serverGeminiAvailable: false, defaultModel: 'gemini-4-hydrogen' };
   }
@@ -256,6 +308,114 @@ function buildOpenAiModelsUrls(baseUrl: string): string[] {
   return [`${clean}/v1/models`, `${clean}/models`];
 }
 
+async function fetchAiModelsDirectBrowser(preset: {
+  protocol: AiModelPreset['protocol'];
+  baseUrl: string;
+  apiKey: string;
+}): Promise<FetchedAiModel[]> {
+  if (preset.protocol === 'server-gemini') {
+    throw new Error('内置 Gemini 引擎需要 Web AI 代理服务支持，请切换至自定义 API 预设。');
+  }
+
+  if (preset.protocol === 'openai') {
+    if (!preset.baseUrl?.trim()) {
+      throw new Error('请先填写 API Base URL');
+    }
+    const urls = buildOpenAiModelsUrls(preset.baseUrl);
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (preset.apiKey?.trim()) {
+      headers['Authorization'] = `Bearer ${preset.apiKey.trim()}`;
+    }
+    let lastErr = '请求失败';
+    for (const url of urls) {
+      try {
+        const res = await fetch(url, { method: 'GET', headers });
+        const parsed = await parseJsonSafe(res);
+        if (!parsed.ok) {
+          lastErr = extractErrorDetail(parsed, '请求失败');
+          continue;
+        }
+        if (!parsed.data) {
+          lastErr = `返回非 JSON 响应: ${parsed.rawText.slice(0, 120)}`;
+          continue;
+        }
+        const rawList = Array.isArray(parsed.data?.data)
+          ? parsed.data.data
+          : Array.isArray(parsed.data?.models)
+          ? parsed.data.models
+          : [];
+        const seen = new Set<string>();
+        const models: FetchedAiModel[] = [];
+        for (const item of rawList) {
+          const id = String(item?.id || item?.name || item?.model || '').trim();
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          models.push({
+            id,
+            displayName: typeof item?.displayName === 'string' ? item.displayName : undefined,
+            ownedBy: typeof item?.owned_by === 'string' ? item.owned_by : '直连获取',
+          });
+        }
+        if (models.length > 0) {
+          return models.sort((a, b) => a.id.localeCompare(b.id));
+        }
+        lastErr = '服务器返回了空的模型列表';
+      } catch (err: any) {
+        lastErr = err?.message || '直连网络失败（请检查地址或跨域策略）';
+      }
+    }
+    throw new Error(`抓取模型失败: ${lastErr}`);
+  }
+
+  const cleanBase = (preset.baseUrl || 'https://generativelanguage.googleapis.com')
+    .trim()
+    .replace(/\/+$/, '');
+  const endpoint = cleanBase.endsWith('/models')
+    ? cleanBase
+    : cleanBase.includes('/v1beta')
+    ? `${cleanBase}/models`
+    : `${cleanBase}/v1beta/models`;
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (preset.apiKey?.trim()) {
+    headers['x-goog-api-key'] = preset.apiKey.trim();
+  }
+  let res: Response;
+  try {
+    res = await fetch(endpoint, { method: 'GET', headers });
+  } catch (err: any) {
+    throw new Error(`直连抓取 Gemini 模型失败：${err?.message || err}`);
+  }
+  const parsed = await parseJsonSafe(res);
+  if (!parsed.ok) {
+    throw new Error(extractErrorDetail(parsed, '直连抓取失败'));
+  }
+  if (!parsed.data) {
+    throw new Error(`返回非 JSON 内容：${parsed.rawText.slice(0, 120)}`);
+  }
+  const rawList = Array.isArray(parsed.data?.models)
+    ? parsed.data.models
+    : Array.isArray(parsed.data?.data)
+    ? parsed.data.data
+    : [];
+  const seen = new Set<string>();
+  const models: FetchedAiModel[] = [];
+  for (const item of rawList) {
+    const methods: string[] | undefined = Array.isArray(item?.supportedGenerationMethods)
+      ? item.supportedGenerationMethods
+      : undefined;
+    if (methods && !methods.includes('generateContent')) continue;
+    const id = String(item?.name || item?.id || '').trim().replace(/^models\//, '');
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    models.push({
+      id,
+      displayName: typeof item?.displayName === 'string' ? item.displayName : undefined,
+      ownedBy: 'Gemini API',
+    });
+  }
+  return models;
+}
+
 export async function fetchAiModelsFromServer(preset: {
   protocol: AiModelPreset['protocol'];
   baseUrl: string;
@@ -266,87 +426,7 @@ export async function fetchAiModelsFromServer(preset: {
     preset.protocol !== 'server-gemini' &&
     (Capacitor.isNativePlatform() || preset.directBrowser || (preset.baseUrl && isLocalHostname(preset.baseUrl)))
   ) {
-    if (preset.protocol === 'openai') {
-      if (!preset.baseUrl?.trim()) {
-        throw new Error('请先填写 API Base URL');
-      }
-      const urls = buildOpenAiModelsUrls(preset.baseUrl);
-      const headers: Record<string, string> = { Accept: 'application/json' };
-      if (preset.apiKey?.trim()) {
-        headers['Authorization'] = `Bearer ${preset.apiKey.trim()}`;
-      }
-      let lastErr = '请求失败';
-      for (const url of urls) {
-        try {
-          const res = await fetch(url, { method: 'GET', headers });
-          const data = await res.json();
-          if (!res.ok) {
-            lastErr = data?.error?.message || `HTTP ${res.status}`;
-            continue;
-          }
-          const rawList = Array.isArray(data?.data)
-            ? data.data
-            : Array.isArray(data?.models)
-            ? data.models
-            : [];
-          const seen = new Set<string>();
-          const models: FetchedAiModel[] = [];
-          for (const item of rawList) {
-            const id = String(item?.id || item?.name || item?.model || '').trim();
-            if (!id || seen.has(id)) continue;
-            seen.add(id);
-            models.push({
-              id,
-              displayName: typeof item?.displayName === 'string' ? item.displayName : undefined,
-              ownedBy: typeof item?.owned_by === 'string' ? item.owned_by : '本地直连',
-            });
-          }
-          if (models.length > 0) {
-            return models.sort((a, b) => a.id.localeCompare(b.id));
-          }
-          lastErr = '服务器返回了空的模型列表';
-        } catch (err: any) {
-          lastErr = err?.message || '直连网络失败';
-        }
-      }
-      throw new Error(`直连抓取模型失败: ${lastErr}`);
-    }
-
-    const cleanBase = (preset.baseUrl || 'https://generativelanguage.googleapis.com')
-      .trim()
-      .replace(/\/+$/, '');
-    const endpoint = cleanBase.endsWith('/models')
-      ? cleanBase
-      : cleanBase.includes('/v1beta')
-      ? `${cleanBase}/models`
-      : `${cleanBase}/v1beta/models`;
-    const headers: Record<string, string> = { Accept: 'application/json' };
-    if (preset.apiKey?.trim()) {
-      headers['x-goog-api-key'] = preset.apiKey.trim();
-    }
-    const res = await fetch(endpoint, { method: 'GET', headers });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data?.error?.message || `直连抓取失败 (HTTP ${res.status})`);
-    }
-    const rawList = Array.isArray(data?.models) ? data.models : Array.isArray(data?.data) ? data.data : [];
-    const seen = new Set<string>();
-    const models: FetchedAiModel[] = [];
-    for (const item of rawList) {
-      const methods: string[] | undefined = Array.isArray(item?.supportedGenerationMethods)
-        ? item.supportedGenerationMethods
-        : undefined;
-      if (methods && !methods.includes('generateContent')) continue;
-      const id = String(item?.name || item?.id || '').trim().replace(/^models\//, '');
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      models.push({
-        id,
-        displayName: typeof item?.displayName === 'string' ? item.displayName : undefined,
-        ownedBy: 'Gemini API',
-      });
-    }
-    return models;
+    return await fetchAiModelsDirectBrowser(preset);
   }
 
   const res = await fetch('/api/ai/models', {
@@ -358,11 +438,20 @@ export async function fetchAiModelsFromServer(preset: {
       apiKey: preset.apiKey,
     }),
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error || `从服务器抓取模型失败 (${res.status})`);
+  const parsed = await parseJsonSafe(res);
+  if (isProxyUnavailable(parsed.status, parsed.rawText)) {
+    if (preset.protocol === 'server-gemini') {
+      throw new Error('当前后端环境未启用服务端内置 Gemini，请新建并切换到自定义 OpenAI 或 Gemini 预设。');
+    }
+    return await fetchAiModelsDirectBrowser(preset);
   }
-  return Array.isArray(data?.models) ? data.models : [];
+  if (!parsed.ok) {
+    throw new Error(extractErrorDetail(parsed, '从服务器抓取模型失败'));
+  }
+  if (!parsed.data) {
+    throw new Error(`服务器返回非 JSON 响应：${parsed.rawText.slice(0, 120)}`);
+  }
+  return Array.isArray(parsed.data?.models) ? parsed.data.models : [];
 }
 
 export async function sendAiChat(params: {
@@ -430,11 +519,23 @@ export async function sendAiChat(params: {
       systemInstruction,
     }),
   });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error || `请求失败 (${res.status})`);
+  const parsed = await parseJsonSafe(res);
+  if (isProxyUnavailable(parsed.status, parsed.rawText)) {
+    if (preset.protocol === 'server-gemini') {
+      throw new Error('当前后端环境未启用服务端内置 Gemini，请切换至自定义 API 预设。');
+    }
+    const directMessages = systemInstruction
+      ? [{ role: 'system' as const, content: systemInstruction }, ...apiMessages]
+      : apiMessages;
+    return await callDirectBrowser(preset, directMessages, false);
   }
-  return data.text || '';
+  if (!parsed.ok) {
+    throw new Error(extractErrorDetail(parsed, '请求失败'));
+  }
+  if (!parsed.data) {
+    throw new Error(`服务端返回非 JSON 响应：${parsed.rawText.slice(0, 120)}`);
+  }
+  return parsed.data.text || '';
 }
 
 export type EditorAiAction = 'polish' | 'continue' | 'summarize' | 'fix' | 'translate';
@@ -545,11 +646,26 @@ async function requestStructuredJson(params: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ preset, task, prompt, systemInstruction }),
     });
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data?.error || `结构化生成失败 (${res.status})`);
+    const parsed = await parseJsonSafe(res);
+    if (isProxyUnavailable(parsed.status, parsed.rawText)) {
+      if (preset.protocol === 'server-gemini') {
+        throw new Error('当前后端环境未启用服务端内置 Gemini，请切换至自定义 API 预设。');
+      }
+      rawText = await callDirectBrowser(
+        preset,
+        [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: prompt },
+        ],
+        true
+      );
+    } else if (!parsed.ok) {
+      throw new Error(extractErrorDetail(parsed, '结构化生成失败'));
+    } else if (!parsed.data) {
+      throw new Error(`服务端返回非 JSON 响应：${parsed.rawText.slice(0, 120)}`);
+    } else {
+      rawText = parsed.data.text || '{}';
     }
-    rawText = data.text || '{}';
   }
 
   try {
