@@ -1197,7 +1197,7 @@ export default function SettingsView({
                         className="accent-indigo-500 rounded"
                       />
                       <span>
-                        浏览器直接请求（适用于本机 Ollama 127.0.0.1 或内网自建模型，公网 API 建议保持关闭以通过本地服务端转发）
+                        浏览器直接请求（仅适用于本机 Ollama 127.0.0.1 等支持跨域的模型；第三方中转站或公网接口请保持关闭，由本地内核或服务端代理转发）
                       </span>
                     </label>
                   )}

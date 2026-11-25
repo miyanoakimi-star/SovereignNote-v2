@@ -9,6 +9,8 @@ import {
   Note,
 } from '../types';
 import { safeStorage } from '../utils/safeStorage';
+import { getApiBaseUrl } from './api';
+import { SovereignNative } from '../plugins/sovereignNative';
 
 const PRESETS_STORAGE_KEY = 'sovereign_ai_presets';
 const ACTIVE_PRESET_KEY = 'sovereign_ai_active_preset_id';
@@ -148,13 +150,14 @@ function buildOpenAiEndpoint(baseUrl: string): string {
   return `${clean}/v1/chat/completions`;
 }
 
-async function parseJsonSafe(res: Response): Promise<{
+type SafeHttpResult = {
   ok: boolean;
   status: number;
   data: any;
   rawText: string;
-}> {
-  const rawText = await res.text();
+};
+
+function parseRawResponseSafe(ok: boolean, status: number, rawText: string): SafeHttpResult {
   let data: any = null;
   if (rawText.trim()) {
     try {
@@ -163,7 +166,59 @@ async function parseJsonSafe(res: Response): Promise<{
       data = null;
     }
   }
-  return { ok: res.ok, status: res.status, data, rawText };
+  return { ok, status, data, rawText };
+}
+
+async function parseJsonSafe(res: Response): Promise<SafeHttpResult> {
+  const rawText = await res.text();
+  return parseRawResponseSafe(res.ok, res.status, rawText);
+}
+
+async function performDirectHttp(options: {
+  url: string;
+  method: 'GET' | 'POST';
+  headers: Record<string, string>;
+  body?: string;
+  timeoutMs?: number;
+  proxyWasMissing?: boolean;
+}): Promise<SafeHttpResult> {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const nativeRes = await SovereignNative.httpRequest({
+        url: options.url,
+        method: options.method,
+        headers: options.headers,
+        body: options.body,
+        timeoutMs: options.timeoutMs ?? 60000,
+      });
+      return parseRawResponseSafe(nativeRes.ok, nativeRes.status, nativeRes.text || '');
+    } catch (nativeErr: any) {
+      const msg = String(nativeErr?.message || nativeErr || '');
+      if (!msg.includes('not implemented') && !msg.includes('UNIMPLEMENTED')) {
+        throw new Error(`移动端原生网络请求失败：${msg}`);
+      }
+    }
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(options.url, {
+      method: options.method,
+      headers: options.headers,
+      body: options.body,
+    });
+  } catch (err: any) {
+    const rawMsg = err?.message || String(err);
+    if (options.proxyWasMissing) {
+      throw new Error(
+        `本地内核暂未启用 AI 代理转发，且浏览器直连失败（多为第三方中转站拦截跨域 CORS）：${rawMsg}。请重新编译桌面端内核以启用内置代理转发。`
+      );
+    }
+    throw new Error(
+      `直连接口网络失败（第三方接口通常拦截浏览器跨域 CORS，建议取消勾选「浏览器直接请求」改由本地内核代理转发）：${rawMsg}`
+    );
+  }
+  return await parseJsonSafe(res);
 }
 
 function isProxyUnavailable(status: number, rawText: string): boolean {
@@ -181,10 +236,11 @@ function extractErrorDetail(parsed: { status: number; data: any; rawText: string
 async function callDirectBrowser(
   preset: AiModelPreset,
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
-  jsonMode = false
+  jsonMode = false,
+  proxyWasMissing = false
 ): Promise<string> {
   if (preset.protocol === 'server-gemini') {
-    throw new Error('内置 Gemini 引擎需通过 Web 服务端运行，请切换至自定义 API 预设。');
+    throw new Error('内置 Gemini 引擎需通过 Web 服务端或已配置密钥的内核运行，请切换至自定义 API 预设。');
   }
 
   if (preset.protocol === 'openai') {
@@ -192,7 +248,10 @@ async function callDirectBrowser(
       throw new Error('请填写自定义 OpenAI 兼容接口的 API Base URL');
     }
     const endpoint = buildOpenAiEndpoint(preset.baseUrl);
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
     if (preset.apiKey?.trim()) {
       headers['Authorization'] = `Bearer ${preset.apiKey.trim()}`;
     }
@@ -203,17 +262,23 @@ async function callDirectBrowser(
     if (jsonMode) {
       body.response_format = { type: 'json_object' };
     }
-    let res: Response;
-    try {
-      res = await fetch(endpoint, {
+    let parsed = await performDirectHttp({
+      url: endpoint,
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      proxyWasMissing,
+    });
+    if (jsonMode && parsed.status === 400 && parsed.rawText.includes('response_format')) {
+      const fallbackBody = { model: preset.model, messages };
+      parsed = await performDirectHttp({
+        url: endpoint,
         method: 'POST',
         headers,
-        body: JSON.stringify(body),
+        body: JSON.stringify(fallbackBody),
+        proxyWasMissing,
       });
-    } catch (err: any) {
-      throw new Error(`直连接口网络失败（请检查地址或跨域 CORS 设置）：${err?.message || err}`);
     }
-    const parsed = await parseJsonSafe(res);
     if (!parsed.ok) {
       throw new Error(extractErrorDetail(parsed, '接口请求失败'));
     }
@@ -231,7 +296,10 @@ async function callDirectBrowser(
   const endpoint = cleanBase.includes(':generateContent')
     ? cleanBase
     : `${cleanBase}/v1beta/models/${encodeURIComponent(preset.model)}:generateContent`;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
   if (preset.apiKey?.trim()) {
     headers['x-goog-api-key'] = preset.apiKey.trim();
   }
@@ -249,17 +317,13 @@ async function callDirectBrowser(
   if (jsonMode) {
     payload.generationConfig = { responseMimeType: 'application/json' };
   }
-  let res: Response;
-  try {
-    res = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-    });
-  } catch (err: any) {
-    throw new Error(`直连 Gemini 接口网络失败：${err?.message || err}`);
-  }
-  const parsed = await parseJsonSafe(res);
+  const parsed = await performDirectHttp({
+    url: endpoint,
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+    proxyWasMissing,
+  });
   if (!parsed.ok) {
     throw new Error(extractErrorDetail(parsed, 'Gemini 接口请求失败'));
   }
@@ -273,8 +337,12 @@ async function callDirectBrowser(
 
 function shouldUseDirectBrowser(preset: AiModelPreset): boolean {
   if (preset.protocol === 'server-gemini') return false;
-  if (Capacitor.isNativePlatform()) return true;
   if (preset.directBrowser) return true;
+  if (Capacitor.isNativePlatform()) {
+    // When Android has an explicit desktop sync kernel configured, route through its AI proxy unless directBrowser is checked
+    const syncUrl = safeStorage.getItem('sovereign_sync_url');
+    return !syncUrl;
+  }
   return Boolean(preset.baseUrl && isLocalHostname(preset.baseUrl));
 }
 
@@ -283,7 +351,7 @@ export async function fetchServerAiStatus(): Promise<{
   defaultModel: string;
 }> {
   try {
-    const res = await fetch('/api/ai/status');
+    const res = await fetch(`${getApiBaseUrl()}/ai/status`);
     const parsed = await parseJsonSafe(res);
     if (!parsed.ok || !parsed.data) {
       return { serverGeminiAvailable: false, defaultModel: 'gemini-4-hydrogen' };
@@ -308,13 +376,16 @@ function buildOpenAiModelsUrls(baseUrl: string): string[] {
   return [`${clean}/v1/models`, `${clean}/models`];
 }
 
-async function fetchAiModelsDirectBrowser(preset: {
-  protocol: AiModelPreset['protocol'];
-  baseUrl: string;
-  apiKey: string;
-}): Promise<FetchedAiModel[]> {
+async function fetchAiModelsDirectBrowser(
+  preset: {
+    protocol: AiModelPreset['protocol'];
+    baseUrl: string;
+    apiKey: string;
+  },
+  proxyWasMissing = false
+): Promise<FetchedAiModel[]> {
   if (preset.protocol === 'server-gemini') {
-    throw new Error('内置 Gemini 引擎需要 Web AI 代理服务支持，请切换至自定义 API 预设。');
+    throw new Error('内置 Gemini 引擎需要 Web 或配置密钥的代理服务支持，请切换至自定义 API 预设。');
   }
 
   if (preset.protocol === 'openai') {
@@ -329,8 +400,13 @@ async function fetchAiModelsDirectBrowser(preset: {
     let lastErr = '请求失败';
     for (const url of urls) {
       try {
-        const res = await fetch(url, { method: 'GET', headers });
-        const parsed = await parseJsonSafe(res);
+        const parsed = await performDirectHttp({
+          url,
+          method: 'GET',
+          headers,
+          timeoutMs: 15000,
+          proxyWasMissing,
+        });
         if (!parsed.ok) {
           lastErr = extractErrorDetail(parsed, '请求失败');
           continue;
@@ -379,13 +455,13 @@ async function fetchAiModelsDirectBrowser(preset: {
   if (preset.apiKey?.trim()) {
     headers['x-goog-api-key'] = preset.apiKey.trim();
   }
-  let res: Response;
-  try {
-    res = await fetch(endpoint, { method: 'GET', headers });
-  } catch (err: any) {
-    throw new Error(`直连抓取 Gemini 模型失败：${err?.message || err}`);
-  }
-  const parsed = await parseJsonSafe(res);
+  const parsed = await performDirectHttp({
+    url: endpoint,
+    method: 'GET',
+    headers,
+    timeoutMs: 15000,
+    proxyWasMissing,
+  });
   if (!parsed.ok) {
     throw new Error(extractErrorDetail(parsed, '直连抓取失败'));
   }
@@ -424,26 +500,37 @@ export async function fetchAiModelsFromServer(preset: {
 }): Promise<FetchedAiModel[]> {
   if (
     preset.protocol !== 'server-gemini' &&
-    (Capacitor.isNativePlatform() || preset.directBrowser || (preset.baseUrl && isLocalHostname(preset.baseUrl)))
+    (preset.directBrowser ||
+      (Capacitor.isNativePlatform() && !safeStorage.getItem('sovereign_sync_url')) ||
+      (preset.baseUrl && isLocalHostname(preset.baseUrl)))
   ) {
-    return await fetchAiModelsDirectBrowser(preset);
+    return await fetchAiModelsDirectBrowser(preset, false);
   }
 
-  const res = await fetch('/api/ai/models', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      protocol: preset.protocol,
-      baseUrl: preset.baseUrl,
-      apiKey: preset.apiKey,
-    }),
-  });
-  const parsed = await parseJsonSafe(res);
+  let parsed: SafeHttpResult;
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/ai/models`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        protocol: preset.protocol,
+        baseUrl: preset.baseUrl,
+        apiKey: preset.apiKey,
+      }),
+    });
+    parsed = await parseJsonSafe(res);
+  } catch (err) {
+    if (Capacitor.isNativePlatform() && preset.protocol !== 'server-gemini') {
+      return await fetchAiModelsDirectBrowser(preset, false);
+    }
+    throw new Error(`无法连接本地 AI 代理服务：${(err as any)?.message || err}`);
+  }
+
   if (isProxyUnavailable(parsed.status, parsed.rawText)) {
     if (preset.protocol === 'server-gemini') {
       throw new Error('当前后端环境未启用服务端内置 Gemini，请新建并切换到自定义 OpenAI 或 Gemini 预设。');
     }
-    return await fetchAiModelsDirectBrowser(preset);
+    return await fetchAiModelsDirectBrowser(preset, true);
   }
   if (!parsed.ok) {
     throw new Error(extractErrorDetail(parsed, '从服务器抓取模型失败'));
@@ -507,19 +594,31 @@ export async function sendAiChat(params: {
     const directMessages = systemInstruction
       ? [{ role: 'system' as const, content: systemInstruction }, ...apiMessages]
       : apiMessages;
-    return await callDirectBrowser(preset, directMessages, false);
+    return await callDirectBrowser(preset, directMessages, false, false);
   }
 
-  const res = await fetch('/api/ai/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      preset,
-      messages: apiMessages,
-      systemInstruction,
-    }),
-  });
-  const parsed = await parseJsonSafe(res);
+  let parsed: SafeHttpResult;
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/ai/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        preset,
+        messages: apiMessages,
+        systemInstruction,
+      }),
+    });
+    parsed = await parseJsonSafe(res);
+  } catch (err) {
+    if (Capacitor.isNativePlatform() && preset.protocol !== 'server-gemini') {
+      const directMessages = systemInstruction
+        ? [{ role: 'system' as const, content: systemInstruction }, ...apiMessages]
+        : apiMessages;
+      return await callDirectBrowser(preset, directMessages, false, false);
+    }
+    throw new Error(`无法连接本地 AI 代理服务：${(err as any)?.message || err}`);
+  }
+
   if (isProxyUnavailable(parsed.status, parsed.rawText)) {
     if (preset.protocol === 'server-gemini') {
       throw new Error('当前后端环境未启用服务端内置 Gemini，请切换至自定义 API 预设。');
@@ -527,7 +626,7 @@ export async function sendAiChat(params: {
     const directMessages = systemInstruction
       ? [{ role: 'system' as const, content: systemInstruction }, ...apiMessages]
       : apiMessages;
-    return await callDirectBrowser(preset, directMessages, false);
+    return await callDirectBrowser(preset, directMessages, false, true);
   }
   if (!parsed.ok) {
     throw new Error(extractErrorDetail(parsed, '请求失败'));
@@ -638,33 +737,55 @@ async function requestStructuredJson(params: {
         { role: 'system', content: systemInstruction },
         { role: 'user', content: prompt },
       ],
-      true
+      true,
+      false
     );
   } else {
-    const res = await fetch('/api/ai/structure', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ preset, task, prompt, systemInstruction }),
-    });
-    const parsed = await parseJsonSafe(res);
-    if (isProxyUnavailable(parsed.status, parsed.rawText)) {
-      if (preset.protocol === 'server-gemini') {
-        throw new Error('当前后端环境未启用服务端内置 Gemini，请切换至自定义 API 预设。');
+    let parsed: SafeHttpResult | null = null;
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/ai/structure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preset, task, prompt, systemInstruction }),
+      });
+      parsed = await parseJsonSafe(res);
+    } catch (err) {
+      if (Capacitor.isNativePlatform() && preset.protocol !== 'server-gemini') {
+        rawText = await callDirectBrowser(
+          preset,
+          [
+            { role: 'system', content: systemInstruction },
+            { role: 'user', content: prompt },
+          ],
+          true,
+          false
+        );
+      } else {
+        throw new Error(`无法连接本地 AI 代理服务：${(err as any)?.message || err}`);
       }
-      rawText = await callDirectBrowser(
-        preset,
-        [
-          { role: 'system', content: systemInstruction },
-          { role: 'user', content: prompt },
-        ],
-        true
-      );
-    } else if (!parsed.ok) {
-      throw new Error(extractErrorDetail(parsed, '结构化生成失败'));
-    } else if (!parsed.data) {
-      throw new Error(`服务端返回非 JSON 响应：${parsed.rawText.slice(0, 120)}`);
-    } else {
-      rawText = parsed.data.text || '{}';
+    }
+
+    if (parsed) {
+      if (isProxyUnavailable(parsed.status, parsed.rawText)) {
+        if (preset.protocol === 'server-gemini') {
+          throw new Error('当前后端环境未启用服务端内置 Gemini，请切换至自定义 API 预设。');
+        }
+        rawText = await callDirectBrowser(
+          preset,
+          [
+            { role: 'system', content: systemInstruction },
+            { role: 'user', content: prompt },
+          ],
+          true,
+          true
+        );
+      } else if (!parsed.ok) {
+        throw new Error(extractErrorDetail(parsed, '结构化生成失败'));
+      } else if (!parsed.data) {
+        throw new Error(`服务端返回非 JSON 响应：${parsed.rawText.slice(0, 120)}`);
+      } else {
+        rawText = parsed.data.text || '{}';
+      }
     }
   }
 

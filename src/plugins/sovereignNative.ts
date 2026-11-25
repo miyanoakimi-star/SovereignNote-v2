@@ -79,6 +79,18 @@ export interface SovereignNativePlugin {
       text?: string;
     };
   }>;
+
+  httpRequest(options: {
+    url: string;
+    method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+    headers?: Record<string, string>;
+    body?: string;
+    timeoutMs?: number;
+  }): Promise<{
+    ok: boolean;
+    status: number;
+    text: string;
+  }>;
 }
 
 export const SovereignNative = registerPlugin<SovereignNativePlugin>('SovereignNativePlugin');

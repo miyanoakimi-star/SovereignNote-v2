@@ -16,9 +16,14 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Iterator;
 
 @CapacitorPlugin(name = "SovereignNativePlugin")
 public class SovereignNativePlugin extends Plugin {
@@ -369,5 +374,88 @@ public class SovereignNativePlugin extends Plugin {
                 call.reject("获取分享意图失败: " + ex.getMessage());
             }
         }
+    }
+
+    @PluginMethod
+    public void httpRequest(PluginCall call) {
+        final String urlStr = call.getString("url");
+        final String method = call.getString("method", "GET").toUpperCase();
+        final JSObject headers = call.getObject("headers", new JSObject());
+        final String body = call.getString("body", null);
+        final int timeoutMs = call.getInt("timeoutMs", 60000);
+
+        if (urlStr == null || urlStr.trim().isEmpty()) {
+            call.reject("请求 URL 不能为空");
+            return;
+        }
+
+        new Thread(() -> {
+            HttpURLConnection conn = null;
+            try {
+                URL parsedUrl = new URL(urlStr.trim());
+                String protocol = parsedUrl.getProtocol() != null ? parsedUrl.getProtocol().toLowerCase() : "";
+                if (!"http".equals(protocol) && !"https".equals(protocol)) {
+                    call.reject("仅支持 http 或 https 协议请求");
+                    return;
+                }
+
+                conn = (HttpURLConnection) parsedUrl.openConnection();
+                conn.setInstanceFollowRedirects(false);
+                conn.setConnectTimeout(15000);
+                conn.setReadTimeout(timeoutMs > 0 ? timeoutMs : 60000);
+                conn.setRequestMethod(method);
+
+                if (headers != null) {
+                    Iterator<String> keys = headers.keys();
+                    while (keys.hasNext()) {
+                        String key = keys.next();
+                        String val = headers.getString(key);
+                        if (val != null) {
+                            conn.setRequestProperty(key, val);
+                        }
+                    }
+                }
+
+                if (body != null && !"GET".equals(method) && !"HEAD".equals(method)) {
+                    conn.setDoOutput(true);
+                    byte[] payloadBytes = body.getBytes(StandardCharsets.UTF_8);
+                    try (OutputStream os = conn.getOutputStream()) {
+                        os.write(payloadBytes);
+                        os.flush();
+                    }
+                }
+
+                int status = conn.getResponseCode();
+                InputStream stream = (status >= 200 && status < 400)
+                        ? conn.getInputStream()
+                        : conn.getErrorStream();
+
+                StringBuilder responseBuilder = new StringBuilder();
+                if (stream != null) {
+                    try (BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            if (responseBuilder.length() > 0) {
+                                responseBuilder.append('\n');
+                            }
+                            responseBuilder.append(line);
+                        }
+                    }
+                }
+
+                JSObject ret = new JSObject();
+                ret.put("ok", status >= 200 && status < 300);
+                ret.put("status", status);
+                ret.put("text", responseBuilder.toString());
+                call.resolve(ret);
+            } catch (Exception e) {
+                call.reject("原生网络请求失败: " + (e.getMessage() != null ? e.getMessage() : e.toString()));
+            } finally {
+                if (conn != null) {
+                    conn.disconnect();
+                }
+            }
+        }).start();
     }
 }

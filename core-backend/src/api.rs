@@ -50,6 +50,11 @@ pub fn router(state: AppState) -> Router {
         .route("/probe", post(add_probe_event_api))
         .route("/probe/list", get(get_probe_events_api))
         .route("/health", get(health_check))
+        // AI Proxy Endpoints for Desktop Kernel (bypasses browser CORS)
+        .route("/ai/status", get(crate::ai_proxy::ai_status))
+        .route("/ai/models", post(crate::ai_proxy::ai_models))
+        .route("/ai/chat", post(crate::ai_proxy::ai_chat))
+        .route("/ai/structure", post(crate::ai_proxy::ai_structure))
         .nest("/backup", crate::backup::backup_routes())
         .with_state(state)
 }
